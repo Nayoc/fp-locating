@@ -2,8 +2,8 @@ from torch import nn
 import torch
 import torchvision.models as models
 from torch.nn import functional as F
-import src.util.coor_utils as cu
-import src.data.optimizer as optimizer
+import util.coor_utils as cu
+import data.optimizer as optimizer
 
 
 # 深度学习模型

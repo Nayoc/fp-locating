@@ -1,7 +1,7 @@
 import torch
-from src.view.mplt import Animator
+from view.mplt import Animator
 import os
-import src.util.coor_utils as cu
+import util.coor_utils as cu
 
 project_name = 'fp-locating'
 cur_path = os.path.dirname(__file__)

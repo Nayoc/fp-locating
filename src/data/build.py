@@ -1,8 +1,9 @@
 import torch
 import torch.utils.data as data
 import numpy as np
-import src.data.optimizer as optimizer
+import data.optimizer as optimizer
 import pandas as pd
+from pathlib import Path
 
 
 class SignalData:
@@ -22,7 +23,9 @@ class SignalData:
 class EcnuDataBuilder(SignalData):
     def __init__(self):
         super(EcnuDataBuilder, self).__init__()
-        self.file_name_suffix = 'data/dataset/ecnu/'
+        root_dir = str(Path(__file__).parent.parent.parent)
+
+        self.file_name_suffix = root_dir + '/data/dataset/ecnu/'
         self.train_file = '闵行路测绕行_train.pth'
         self.validation_file = '闵行路测绕行_validation.pth'
         self.test_file = '闵行路测绕行_test.pth'
@@ -44,14 +47,14 @@ class EcnuDataBuilder(SignalData):
             self.validation_label_tensor = validation['labels']
             self.test_label_tensor = test['labels']
         except:
-            d1, l1 = self.data_query('data/orginal/ecnu/0602-104700_UE1_source_0606150621-12964.csv')
-            d2, l2 = self.data_query('data/orginal/ecnu/0531-164319_UE1_source_0606150615-3350.csv')
-            d3, l3 = self.data_query('data/orginal/ecnu/0601-172142_UE1_source_0606150619-12933.csv')
-            d4, l4 = self.data_query('data/orginal/ecnu/0602-113342_UE1_source_0606150623-9649.csv')
-            d5, l5 = self.data_query('data/orginal/ecnu/0531-165707_UE1_source_0606150615-407.csv')
-            d6, l6 = self.data_query('data/orginal/ecnu/0601-170116_UE1_source_0606150618-6128.csv')
-            d7, l7 = self.data_query('data/orginal/ecnu/验证集0601-161411_UE1_source_0606150616-13752.csv')
-            d8, l8 = self.data_query('data/orginal/ecnu/测试集0602-120648_UE1_source_0606150624-7014.csv')
+            d1, l1 = self.data_query(root_dir + '/data/orginal/ecnu/0602-104700_UE1_source_0606150621-12964.csv')
+            d2, l2 = self.data_query(root_dir + '/data/orginal/ecnu/0531-164319_UE1_source_0606150615-3350.csv')
+            d3, l3 = self.data_query(root_dir + '/data/orginal/ecnu/0601-172142_UE1_source_0606150619-12933.csv')
+            d4, l4 = self.data_query(root_dir + '/data/orginal/ecnu/0602-113342_UE1_source_0606150623-9649.csv')
+            d5, l5 = self.data_query(root_dir + '/data/orginal/ecnu/0531-165707_UE1_source_0606150615-407.csv')
+            d6, l6 = self.data_query(root_dir + '/data/orginal/ecnu/0601-170116_UE1_source_0606150618-6128.csv')
+            d7, l7 = self.data_query(root_dir + '/data/orginal/ecnu/验证集0601-161411_UE1_source_0606150616-13752.csv')
+            d8, l8 = self.data_query(root_dir + '/data/orginal/ecnu/测试集0602-120648_UE1_source_0606150624-7014.csv')
 
             train_data = d1 + d2 + d3 + d4 + d5 + d6
             train_label = l1 + l2 + l3 + l4 + l5 + l6
