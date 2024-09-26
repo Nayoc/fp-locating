@@ -6,7 +6,7 @@ import util.coor_utils as cu
 import data.optimizer as optimizer
 
 
-# 深度学习模型
+# CNN
 class MCNN1(nn.Module):
     def __init__(self, input_shape):
         super(MCNN1, self).__init__()
@@ -52,7 +52,20 @@ class MCNN1(nn.Module):
 
         return x
 
+# RNN
+class SimpleRNN(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size):
+        super(SimpleRNN, self).__init__()
+        self.rnn = nn.RNN(input_size, hidden_size, batch_first=True)
+        self.fc = nn.Linear(hidden_size, output_size)
 
+    def forward(self, x):
+        out, _ = self.rnn(x)
+        out = self.fc(out[:, -1, :])  # 取RNN最后一个时间步的输出
+        return out
+
+
+# LOSS
 class CoordinateLoss(nn.Module):
     def __init__(self):
         super(CoordinateLoss, self).__init__()
@@ -65,23 +78,19 @@ class CoordinateLoss(nn.Module):
 
 
 class CombinedLoss(nn.Module):
-    def __init__(self, norm, alpha=0.5):
+    def __init__(self, norm, alpha=0.8):
         super(CombinedLoss, self).__init__()
         self.alpha = alpha
         self.mse_loss = nn.MSELoss()
         self.norm = norm
 
     def forward(self, y_hat, y):
-        # 传统MSE损失
-        mse_loss = self.mse_loss(y_hat, y)
-
         y_hat = self.norm.denorm(y_hat)
         y = self.norm.denorm(y)
         # 坐标误差（欧几里得距离）
         coord_loss = cu.calc_geodesic_distance(y_hat, y).mean()
+        # 传统MSE损失
+        mse_loss = self.mse_loss(y_hat, y)
         # 组合损失
         return self.alpha * coord_loss + (1 - self.alpha) * mse_loss
 
-
-# 使用自定义的坐标误差损失
-loss_fn = CoordinateLoss()

@@ -105,9 +105,12 @@ class EcnuDataBuilder(SignalData):
         return '闵行校测绕行数据'
 
     def load_build(self, batch_size=64):
-        train_iter = data.DataLoader(self.train_set, batch_size=batch_size, shuffle=True)
-        validation_iter = data.DataLoader(self.validation_set, batch_size=batch_size, shuffle=True)
-        test_iter = data.DataLoader(self.test_set, batch_size=batch_size, shuffle=True)
+        train_iter = data.DataLoader(self.train_set, batch_size=batch_size, shuffle=True, num_workers=8,
+                                     pin_memory=True)
+        validation_iter = data.DataLoader(self.validation_set, batch_size=batch_size, shuffle=True, num_workers=8,
+                                          pin_memory=True)
+        test_iter = data.DataLoader(self.test_set, batch_size=batch_size, shuffle=True, num_workers=8,
+                                    pin_memory=True)
 
         return train_iter, validation_iter, test_iter
 

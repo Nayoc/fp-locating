@@ -3,12 +3,12 @@ import torch
 from matplotlib import pyplot as plt
 
 
-def use_svg_display():  # @save
+def use_svg_display():  # @save_model
     """使用svg格式在Jupyter中显示绘图"""
     backend_inline.set_matplotlib_formats('svg')
 
 
-def set_figsize(figsize=(3.5, 2.5)):  # @save
+def set_figsize(figsize=(3.5, 2.5)):  # @save_model
     """设置matplotlib的图表大小"""
     use_svg_display()
     plt.rcParams['figure.figsize'] = figsize
@@ -27,7 +27,7 @@ def set_axes(axes, xlabel, ylabel, xlim, ylim, xscale, yscale, legend):
     axes.grid()
 
 
-# @save
+# @save_model
 def plot(X, Y=None, xlabel=None, ylabel=None, legend=None, xlim=None,
          ylim=None, xscale='linear', yscale='linear',
          fmts=('-', 'm--', 'g-.', 'r:'), figsize=(3.5, 2.5), axes=None):
@@ -61,7 +61,7 @@ def plot(X, Y=None, xlabel=None, ylabel=None, legend=None, xlim=None,
     plt.show()
 
 
-class Animator:  # @save
+class Animator:  # @save_model
     """在动画中绘制数据"""
 
     def __init__(self, xlabel=None, ylabel=None, legend=None, xlim=None,

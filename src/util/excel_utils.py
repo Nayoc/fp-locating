@@ -18,7 +18,7 @@ def write_excel(data, output_file):
     ws = wb.active
     for row in data:
         ws.append(row)
-    wb.save(output_file)
+    wb.save_model(output_file)
 
 
 # 写入 Excel 文件,写入指定行
@@ -29,4 +29,4 @@ def write_excel(data, row, output_file):
     for col_index, value in enumerate(data, start=1):
         sheet.cell(row=row + 1, column=col_index, value=value)
 
-    wb.save(output_file)
+    wb.save_model(output_file)

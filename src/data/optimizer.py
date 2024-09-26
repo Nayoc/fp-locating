@@ -35,6 +35,12 @@ class Norm:
         data: torch.Tensor, 已归一化的数据
         dim: 反归一化的维度，默认dim=1
         """
+        print(f'data-device:{data.device}')
+        print(f'norm_params-device:{self.norm_params.device}')
+        if data.device != self.norm_params.device:
+            self.norm_params = self.norm_params.to(data.device)
+        print(f'data-device:{data.device}')
+        print(f'norm_params-device:{self.norm_params.device}')
         min_values = self.norm_params[:, 0]
         max_values = self.norm_params[:, 1]
 
