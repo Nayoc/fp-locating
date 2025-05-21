@@ -7,9 +7,9 @@ import data.optimizer as optimizer
 
 
 # CNN
-class MCNN1(nn.Module):
+class MCnn1(nn.Module):
     def __init__(self, input_shape):
-        super(MCNN1, self).__init__()
+        super(MCnn1, self).__init__()
 
         # 从输入数据的形状中提取通道数和宽度
         _, in_channels, height, width = input_shape

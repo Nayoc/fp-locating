@@ -1,4 +1,85 @@
+from sklearn.preprocessing import StandardScaler
+
 import torch
+
+
+class ZScoreNorm:
+    """自定义Z-Score归一化工具，支持PyTorch张量和任意维度"""
+
+    def __init__(self, dim=0, eps=1e-8):
+        """
+        初始化归一化器
+
+        参数:
+            dim: 需要归一化的维度。None表示全局归一化，否则按指定维度计算统计量
+            eps: 防止除零的小常数
+        """
+        self.dim = dim
+        self.eps = eps
+        self.mean = None
+        self.std = None
+
+    def fit(self, x):
+        """
+        计算并保存归一化所需的均值和标准差
+
+        参数:
+            x: 输入的PyTorch张量 [batch_size, ...]
+        """
+        if not isinstance(x, torch.Tensor):
+            x = torch.tensor(x)
+
+        if self.dim is None:
+            # 全局归一化（所有维度）
+            self.mean = x.mean()
+            self.std = x.std()
+        else:
+            # 按指定维度计算统计量
+            self.mean = x.mean(dim=self.dim, keepdim=True)
+            self.std = x.std(dim=self.dim, keepdim=True)
+
+        # 防止标准差为零
+        self.std = torch.max(self.std, torch.tensor(self.eps, device=x.device))
+
+        return self
+
+    def norm(self, x):
+        """
+        应用Z-Score归一化
+
+        参数:
+            x: 输入的PyTorch张量
+
+        返回:
+            归一化后的张量，保持原始数据类型和维度
+        """
+        if self.mean is None or self.std is None:
+            raise ValueError("请先调用fit方法计算均值和标准差")
+
+        if not isinstance(x, torch.Tensor):
+            x = torch.tensor(x)
+
+        return (x - self.mean) / self.std
+
+    def denorm(self, x_norm):
+        """
+        反归一化，将数据恢复到原始尺度
+
+        参数:
+            x_norm: 归一化后的PyTorch张量
+
+        返回:
+            原始尺度的张量
+        """
+        if self.mean is None or self.std is None:
+            raise ValueError("请先调用fit方法计算均值和标准差")
+
+        return x_norm * self.std + self.mean
+
+    def fit_norm(self, x):
+        """一次性完成拟合和转换"""
+        return self.fit(x).norm(x)
+
 
 
 class Norm:

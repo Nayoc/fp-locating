@@ -13,8 +13,11 @@ root_path = cur_path[:cur_path.find(project_name) + len(project_name)]
 model_path = root_path + '/models/'
 batch_size_changes = {100: 64, 200: 32}  # 在第 100 和 200 epoch 改变 batch_size
 
-# 坐标误差范围表示准确率
-error_scale_3 = 3
+# 坐标误差范围表示准确率，室外30m
+error_scale_30 = 30
+
+# 坐标误差范围准确率，室内2m
+error_scale_2 = 2
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -26,6 +29,7 @@ def extand(data, dim=1):
     return torch.unsqueeze(data, dim=dim)
 
 
+# 经纬距离方法
 # 返回四个维度的数据，规定误差内的准确数量，平均误差距离，最小误差距离，最大误差距离
 def count_geodesic_distance(y_hat, y, norm, p=False):
     """计算预测正确的数量"""
@@ -33,7 +37,18 @@ def count_geodesic_distance(y_hat, y, norm, p=False):
     y = norm.denorm(y)
 
     distance = cu.calc_geodesic_distance(y_hat, y)
-    accuracy = (distance < error_scale_3).sum().item()
+    accuracy = (distance < error_scale_30).sum().item()
+
+    return accuracy, distance.mean(), distance.min(), distance.max()
+
+
+# 一般距离
+def count_normal_distance(y_hat, y, norm, p=False):
+    y_hat = norm.denorm(y_hat)
+    y = norm.denorm(y)
+
+    distance = cu.calc_normal_distance(y_hat, y)
+    accuracy = (distance < error_scale_2).sum().item()
 
     return accuracy, distance.mean(), distance.min(), distance.max()
 
@@ -62,7 +77,10 @@ def evaluate_result(net, device, data_iter, norm):
     with torch.no_grad():
         for X, y in data_iter:
             X, y = X.to(device), y.to(device)
-            distance = count_geodesic_distance(net(X), y, norm)
+
+            # distance = count_geodesic_distance(net(X), y, norm)
+            distance = count_normal_distance(net(X), y, norm)
+
             metric.add(distance[0], y.numel() / 2)
     return metric[0] / metric[1], distance[1], distance[2], distance[3]
 
@@ -76,7 +94,7 @@ def train_epoch(net, device, train_iter, loss, updater, scheduler, label_norm):
     metric = Accumulator(3)
     for batch_idx, (X, y) in enumerate(train_iter):
         X, y = X.to(device), y.to(device)
-        print(f"Batch {batch_idx}: Data is on device: {X.device}")
+        # print(f"Batch {batch_idx}: Data is on device: {X.device}")
 
         # 计算梯度并更新参数
         y_hat = net(X)
@@ -91,7 +109,8 @@ def train_epoch(net, device, train_iter, loss, updater, scheduler, label_norm):
             l.sum().backward(retain_graph=True)
             updater(X.shape[0])
         scheduler.step()
-        distance = count_geodesic_distance(y_hat, y, label_norm)
+
+        distance = count_normal_distance(y_hat, y, label_norm)
         # y.numel()/2是因为最后距离是是坐标聚合出来的，所以总数只有一半
         metric.add(float(l.sum()), distance[0], y.numel() / 2)
     # 返回训练损失和训练精度
@@ -207,7 +226,9 @@ def train(net, train_iter, test_iter, loss, num_epochs, label_norm,
 
 
 def gpu_parallel(net):
+    num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(device)
     # 使用 DataParallel 来分配模型到多个 GPU
     if torch.cuda.device_count() > 1:
         net = nn.DataParallel(net)

@@ -20,3 +20,13 @@ def calc_geodesic_distance(y_hat, y):
     ])
 
     return distance
+
+
+def calc_normal_distance(y_hat, y):
+    # 计算坐标差的平方和
+    squared_diffs = torch.sum((y_hat - y) ** 2, dim=1)
+
+    # 开平方得到欧氏距离
+    distance = torch.sqrt(squared_diffs)
+
+    return distance
