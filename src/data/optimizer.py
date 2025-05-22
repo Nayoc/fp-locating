@@ -1,5 +1,3 @@
-from sklearn.preprocessing import StandardScaler
-
 import torch
 
 
@@ -59,7 +57,11 @@ class ZScoreNorm:
         if not isinstance(x, torch.Tensor):
             x = torch.tensor(x)
 
-        return (x - self.mean) / self.std
+        # 将统计量移动到与输入数据相同的设备
+        mean = self.mean.to(x.device)
+        std = self.std.to(x.device)
+
+        return (x - mean) / std
 
     def denorm(self, x_norm):
         """
@@ -74,7 +76,11 @@ class ZScoreNorm:
         if self.mean is None or self.std is None:
             raise ValueError("请先调用fit方法计算均值和标准差")
 
-        return x_norm * self.std + self.mean
+        # 将统计量移动到与输入数据相同的设备
+        mean = self.mean.to(x_norm.device)
+        std = self.std.to(x_norm.device)
+
+        return x_norm * std + mean
 
     def fit_norm(self, x):
         """一次性完成拟合和转换"""

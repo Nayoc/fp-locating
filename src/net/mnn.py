@@ -88,7 +88,7 @@ class CombinedLoss(nn.Module):
         y_hat = self.norm.denorm(y_hat)
         y = self.norm.denorm(y)
         # 坐标误差（欧几里得距离）
-        coord_loss = cu.calc_geodesic_distance(y_hat, y).mean()
+        coord_loss = cu.calc_normal_distance(y_hat, y).mean()
         # 传统MSE损失
         mse_loss = self.mse_loss(y_hat, y)
         # 组合损失
