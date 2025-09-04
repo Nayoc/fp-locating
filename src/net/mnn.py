@@ -52,6 +52,42 @@ class MCnn1(nn.Module):
 
         return x
 
+class MCnn2(nn.Module):
+    def __init__(self, input_shape):
+        super(MCnn2, self).__init__()
+
+        _, in_channels, height, width = input_shape
+
+        # 调整卷积层配置，更适合(1,6)的输入尺寸
+        self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=16, kernel_size=(1, 3), padding=(0, 1))
+        self.bn1 = nn.BatchNorm2d(16)
+        self.pool1 = nn.MaxPool2d(kernel_size=(1, 2))  # 添加池化层减少维度
+
+        self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=(1, 3), padding=(0, 1))
+        self.bn2 = nn.BatchNorm2d(32)
+
+        # 计算展平后的尺寸
+        flattened_size = 32 * height * (width // 2)  # 考虑池化后的尺寸变化
+
+        # 全连接层增加神经元数量
+        self.fc1 = nn.Linear(flattened_size, 256)
+        self.dropout = nn.Dropout(0.5)  # 添加dropout防止过拟合
+        self.fc2 = nn.Linear(256, 2)
+
+    def forward(self, x):
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = self.pool1(x)  # 应用池化
+
+        x = F.relu(self.bn2(self.conv2(x)))
+
+        x = x.view(x.size(0), -1)
+
+        x = F.relu(self.fc1(x))
+        x = self.dropout(x)  # 应用dropout
+        x = self.fc2(x)
+
+        return x
+
 # RNN
 class SimpleRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):

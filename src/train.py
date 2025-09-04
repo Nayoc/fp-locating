@@ -17,8 +17,8 @@ def run_train(batch_size=128, epochs=100, record_term=10):
 
     train_iter, validation_iter, test_iter = builder.load(batch_size=batch_size)
 
-    net = mnn.MCnn1(builder.train_data.shape)
-    loss = torch.nn.MSELoss(y_norm)
+    net = mnn.MCnn2(builder.train_data.shape)
+    loss = mnn.CombinedLoss(y_norm)
 
     data_name = builder.name
 

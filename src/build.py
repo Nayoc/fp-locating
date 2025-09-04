@@ -39,6 +39,19 @@ def syl_translator():
             continue
         format_data.append(r)
 
+    for i in range(len(format_data)):
+        for j in range(len(format_data[i])):
+            if pd.isnull(format_data[i][j]):
+                if j < 6:
+                    format_data[i][j] = -140
+                else:
+                    del format_data[i]
+            if j < 6:
+                if format_data[i][j] < -140:
+                    format_data[i][j] = -140
+                if format_data[i][j] > -30:
+                    format_data[i][j] = -30
+
     new_df = pd.DataFrame(format_data, columns=ap_list + ['x', 'y'])
     new_df.to_csv(root_dir + '/data/format/syl_data.csv', index=False, encoding='utf-8')
 
@@ -53,6 +66,11 @@ def build_dataset(source_file, source_name):
                     data[i][j] = min_rsrp
                 else:
                     del data[i]
+            if j < 6:
+                if data[i][j] < -140:
+                    data[i][j] = -140
+                if data[i][j] > -30:
+                    data[i][j] = -30
 
     valid_data = random_extract(data, 20)
     test_data = random_extract(data, 10)
@@ -75,8 +93,8 @@ def build_tensor(data):
     d_tensor = torch.tensor(data)
 
     d = d_tensor[:, :-2]
-    # 因为时间维度都是单时间点，因此所有数据需要扩展纬度
-    d = torch.unsqueeze(d, dim=2)
+
+    d = torch.unsqueeze(d, dim=1)
     l = d_tensor[:, -2:]
 
     return d, l

@@ -1,10 +1,11 @@
+import logging
+import os
+
 import torch
 from torch import nn
-import torch.utils.data as data
-from view.mplt import Animator
-import os
+
 import util.coor_utils as cu
-import logging
+from view.mplt import Animator
 
 project_name = 'fp-locating'
 lr_file = 'last_lr.txt'
@@ -85,6 +86,20 @@ def evaluate_result(net, device, data_iter, norm):
     return metric[0] / metric[1], distance[1], distance[2], distance[3]
 
 
+def calculate(net, device, data, norm):
+    if isinstance(net, torch.nn.Module):
+        net.eval()  # 将模型设置为评估模式
+
+    net.to(device)
+    data.to(device)
+
+    with torch.no_grad():
+        predictions = net(data)
+        predictions = norm.denorm(predictions)
+
+    return predictions
+
+
 def train_epoch(net, device, train_iter, loss, updater, scheduler, label_norm):
     """训练模型一个迭代周期（定义见第3章）"""
     # 将模型设置为训练模式
@@ -143,7 +158,7 @@ def train(net, train_iter, test_iter, loss, num_epochs, label_norm,
     net = load_model(net, model_file)
     device, net = gpu_parallel(net)
     trainer = torch.optim.Adam(net.parameters(), lr=lr)
-    scheduler = torch.optim.lr_scheduler.StepLR(trainer, step_size=50, gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.StepLR(trainer, step_size=100, gamma=0.9)
 
     # 权重系数，放大loss观察值
     global_loss_weight = 1
@@ -240,7 +255,7 @@ def gpu_parallel(net):
 
 
 def save_model(net, params_file='fpcnn.params'):
-    torch.save(net.state_dict(), model_path + params_file)
+    torch.save(net.module.state_dict(), model_path + params_file)
 
 
 def load_model(net, filename):
@@ -251,7 +266,6 @@ def load_model(net, filename):
         return net
     except Exception as e:
         print('no model is loaded')
-        print(e)
         return net
 
 

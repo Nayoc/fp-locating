@@ -1,6 +1,45 @@
 import torch
 
 
+class MaxminNorm:
+    def __init__(self, max=-30, min=-140):
+        self.max = max
+        self.min = min
+
+    def norm(self, x):
+        if not isinstance(x, torch.Tensor):
+            x = torch.tensor(x)
+
+        # 按指定维度进行广播操作以适应data的形状
+        shape = x.shape
+        min_values = torch.full(shape, self.min)
+        max_values = torch.full(shape, self.max)
+
+        min_values = min_values.to(x.device)
+        max_values = max_values.to(x.device)
+
+        # 归一化公式 (data - min) / (max - min)
+        normed_data = (x - min_values) / (max_values - min_values)
+        return normed_data
+
+    def denorm(self, x):
+        if not isinstance(x, torch.Tensor):
+            x = torch.tensor(x)
+
+        # 按指定维度进行广播操作以适应data的形状
+        shape = x.shape
+        min_values = torch.full(shape, self.min)
+        max_values = torch.full(shape, self.max)
+
+        min_values = min_values.to(x.device)
+        max_values = max_values.to(x.device)
+
+        # 归一化公式 (data - min) / (max - min)
+        denormed_data = x * (max_values - min_values) + min_values
+
+        return denormed_data
+
+
 class ZScoreNorm:
     """自定义Z-Score归一化工具，支持PyTorch张量和任意维度"""
 
@@ -85,7 +124,6 @@ class ZScoreNorm:
     def fit_norm(self, x):
         """一次性完成拟合和转换"""
         return self.fit(x).norm(x)
-
 
 
 class Norm:

@@ -3,7 +3,7 @@ from pathlib import Path
 import torch
 import torch.utils.data as data
 
-from data.optimizer import ZScoreNorm
+from data.optimizer import MaxminNorm
 
 root_dir = str(Path(__file__).parent.parent.parent)
 cnn_dataset_dir = root_dir + '/data/dataset/cnn/'
@@ -27,18 +27,18 @@ class CnnDataBuilder:
         self.test_label = test['labels']
 
     def norm(self):
-        znorm_x = ZScoreNorm()
-        znorm_y = ZScoreNorm()
+        norm_x = MaxminNorm(max=-30, min=-140)
+        norm_y = MaxminNorm(max=8, min=-1)
 
-        self.train_data = znorm_x.fit_norm(self.train_data)
-        self.validation_data = znorm_x.norm(self.validation_data)
-        self.test_data = znorm_x.norm(self.test_data)
+        self.train_data = norm_x.norm(self.train_data)
+        self.validation_data = norm_x.norm(self.validation_data)
+        self.test_data = norm_x.norm(self.test_data)
 
-        self.train_label = znorm_y.fit_norm(self.train_label)
-        self.validation_label = znorm_y.norm(self.validation_label)
-        self.test_data = znorm_y.norm(self.test_label)
+        self.train_label = norm_y.norm(self.train_label)
+        self.validation_label = norm_y.norm(self.validation_label)
+        self.test_data = norm_y.norm(self.test_label)
 
-        return znorm_x, znorm_y
+        return norm_x, norm_y
 
     def extend_channel(self):
         if len(self.train_data.shape) == 3:
