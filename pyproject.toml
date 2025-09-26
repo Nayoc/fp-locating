@@ -1,0 +1,21 @@
+[project]
+name = "fp-locating"
+version = "1.0.0"
+description = "indoor location"
+readme = "README.md"
+requires-python = ">=3.8"
+
+dependencies = [
+    "torch==2.0.1",
+    "geopy",
+    "openpyxl",
+    "pandas",
+    "matplotlib",
+    "matplotlib-inline",
+    "torchvision>=0.15.2",
+    "mysql-connector-python>=9.0.0",
+    "flask>=3.0.3",
+]
+
+[tool.uv]
+# 这里可以写 uv 的一些额外配置，比如缓存目录等

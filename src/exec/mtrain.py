@@ -11,7 +11,7 @@ project_name = 'fp-locating'
 lr_file = 'last_lr.txt'
 cur_path = os.path.dirname(__file__)
 root_path = cur_path[:cur_path.find(project_name) + len(project_name)]
-model_path = root_path + '/models/'
+model_path = root_path + '/models'
 batch_size_changes = {100: 64, 200: 32}  # 在第 100 和 200 epoch 改变 batch_size
 
 # 坐标误差范围表示准确率，室外30m
@@ -148,7 +148,7 @@ def judge_loss_weight(num):
     return num, i
 
 
-def train(net, train_iter, test_iter, loss, num_epochs, label_norm,
+def train(net, train_iter, val_iter, loss, num_epochs, label_norm,
           model_file='fpcnn.params', record_term=100):
     # 加载上次保存的学习率，若没有则使用默认学习率
     lr = load_lr()
@@ -187,7 +187,7 @@ def train(net, train_iter, test_iter, loss, num_epochs, label_norm,
                                                                                                 loss,
                                                                                                 trainer, scheduler,
                                                                                                 label_norm)
-        test_acc, test_mean_error, test_min_error, test_max_error = evaluate_result(net, device, test_iter, label_norm)
+        test_acc, test_mean_error, test_min_error, test_max_error = evaluate_result(net, device, val_iter, label_norm)
 
         if epoch == 0:
             # 调整损失值到0.1-1区间方便观察
@@ -243,7 +243,6 @@ def train(net, train_iter, test_iter, loss, num_epochs, label_norm,
 def gpu_parallel(net):
     num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(device)
     # 使用 DataParallel 来分配模型到多个 GPU
     if torch.cuda.device_count() > 1:
         net = nn.DataParallel(net)
@@ -254,8 +253,14 @@ def gpu_parallel(net):
     return device, net
 
 
-def save_model(net, params_file='fpcnn.params'):
-    torch.save(net.module.state_dict(), model_path + params_file)
+def save_model(net, params_file='/fpcnn.params'):
+    # 判断模型是否被DataParallel包装
+    if isinstance(net, torch.nn.DataParallel):
+        # 多GPU场景：保存net.module的参数
+        torch.save(net.module.state_dict(), f"{params_file}")
+    else:
+        # 单GPU/CPU场景：直接保存net的参数
+        torch.save(net.state_dict(), f"{params_file}")
 
 
 def load_model(net, filename):

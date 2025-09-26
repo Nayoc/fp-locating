@@ -1,16 +1,15 @@
-from matplotlib_inline import backend_inline
-import torch
+# from matplotlib_inline import backend_inline
 from matplotlib import pyplot as plt
 
 
-def use_svg_display():  # @save_model
-    """使用svg格式在Jupyter中显示绘图"""
-    backend_inline.set_matplotlib_formats('svg')
+# def use_svg_display():  # @save_model
+#     """使用svg格式在Jupyter中显示绘图"""
+#     backend_inline.set_matplotlib_formats('svg')
 
 
 def set_figsize(figsize=(3.5, 2.5)):  # @save_model
     """设置matplotlib的图表大小"""
-    use_svg_display()
+    # use_svg_display()
     plt.rcParams['figure.figsize'] = figsize
 
 
