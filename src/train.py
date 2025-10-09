@@ -15,7 +15,7 @@ data_dir = root_dir + '/data'
 model_dir = root_dir + '/models'
 
 
-def run(space_id: int, dataset_id: int, data_path, norm_y, batch_size=128, epochs=100, record_term=100):
+def run(space_id: int, dataset_id: int, data_path, norm_y, batch_size=128, epochs=100, record_term=500):
     file_path = data_dir + data_path
     train_iter, val_iter, shape = load(file_path, batch_size=batch_size)
 
