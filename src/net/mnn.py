@@ -5,9 +5,9 @@ from torch.nn import functional as F
 import util.coor_utils as cu
 
 
-class MFCNN1D(nn.Module):
+class CommonCNN1D(nn.Module):
     """
-    多尺度特征1D CNN网络（MFCNN1D），适用于指纹库定位的坐标回归任务
+    多尺度特征1D CNN网络（CommonCNN1D），适用于指纹库定位的坐标回归任务
     处理输入形状：(batch_size, 1, 10) （10个AP的信号数据）
     输出形状：(batch_size, 2) （2维浮点坐标：x, y）
     """
@@ -17,7 +17,7 @@ class MFCNN1D(nn.Module):
         参数:
             dropout_rate: dropout层的丢弃率，防止过拟合
         """
-        super(MFCNN1D, self).__init__()
+        super(CommonCNN1D, self).__init__()
 
         # 第一个卷积块：提取细粒度特征（小卷积核）
         self.conv1 = nn.Conv1d(
@@ -114,6 +114,48 @@ class MFCNN1D(nn.Module):
         x = self.fc3(x)  # 输出: (batch_size, 2) （最终2维坐标）
 
         return x
+
+
+class MinCNN1D(nn.Module):
+
+    def __init__(self,input_shape, dropout_rate=0.5):
+
+        super(MinCNN1D, self).__init__()
+
+        self.conv_layer = nn.Sequential(
+            nn.Conv1d(1, 8, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool1d(kernel_size=2, stride=2)
+        )
+
+        # 1. 创建一个与输入形状匹配的伪数据
+        dummy_input = torch.zeros(*input_shape)
+        # 2. 计算卷积层输出
+        with torch.no_grad():
+            conv_output = self.conv_layer(dummy_input)
+        # 3. 计算展平后的维度（动态获取全连接层输入尺寸）
+        flattened_size = conv_output[0].view(1, -1).size(1)
+
+        # 全连接层：添加Dropout正则化
+        self.fc_layers = nn.Sequential(
+            nn.Linear(flattened_size, 16),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(16, 2)
+        )
+
+    def forward(self, x):
+
+        # 第一个卷积块
+        x = self.conv_layer(x)
+
+        x = x.view(x.size(0), -1)
+
+        # 全连接层
+        x = self.fc_layers(x)
+
+        return x
+
 
 # CNN
 class MCnn1(nn.Module):

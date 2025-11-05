@@ -265,7 +265,7 @@ def save_model(net, params_file='/fpcnn.params'):
 
 def load_model(net, filename):
     try:
-        net.load_state_dict(torch.load(model_path + filename))
+        net.load_state_dict(torch.load(model_path + '/' + filename))
         net.eval()
         print(filename + ' is loaded')
         return net
@@ -281,9 +281,6 @@ def save_lr(lr):
 
 def load_lr():
     lr = 0.001
-    if os.path.exists(lr_file):
-        with open(lr_file, 'r') as f:
-            lr = float(f.read().strip())
     return lr
 
 

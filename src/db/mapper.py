@@ -17,9 +17,17 @@ def select_fingerprint_dataset(dataset_id: int):
     return None
 
 
-def update_train_status(dataset_id: int, status: str):
+def update_dataset_status(dataset_id: int, status: str):
     sql = "update fingerprint_dataset set train_status = %s where id = %s"
     result = sql_update(sql, (status, dataset_id))
+    if result:
+        return True
+    return False
+
+
+def update_dataset_model(dataset_id: int, model_file: str):
+    sql = "update fingerprint_dataset set model_file = %s where id = %s"
+    result = sql_update(sql, (model_file, dataset_id))
     if result:
         return True
     return False
@@ -28,8 +36,8 @@ def update_train_status(dataset_id: int, status: str):
 def sql_select(sql: str, params: ()):
     with MySQLConnector() as db:
         if db.connection.is_connected():
-            selectSql = sql
-            result = db.execute_query(selectSql, params)
+            select_sql = sql
+            result = db.execute_query(select_sql, params)
             if result:
                 return result
 
@@ -37,7 +45,16 @@ def sql_select(sql: str, params: ()):
 def sql_update(sql: str, params: ()):
     with MySQLConnector() as db:
         if db.connection.is_connected():
-            updateSql = sql
-            db.execute_update(updateSql, params)
+            update_sql = sql
+            db.execute_update(update_sql, params)
+            return True
+        return False
+
+
+def sql_insert(sql: str, params: ()):
+    with MySQLConnector() as db:
+        if db.connection.is_connected():
+            insert_sql = sql
+            db.execute_insert(insert_sql, params)
             return True
         return False

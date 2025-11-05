@@ -38,7 +38,7 @@ def run(space_id: int, batch_id: str, model='collection'):
     # TODO 暂时只用wifi
     build_tensor_dataset(wifi, scale, directory)
 
-    return dir_name
+    return dir_name, wifi[0][:-2], cell[0][:-2]
 
 
 def build_format_dataset(spaceId: int):
@@ -130,7 +130,7 @@ def build_tensor_dataset(dataset: [], scale: float, path):
     random.shuffle(dataset)
 
     # 计算分割点（70%的位置）
-    split_index = int(len(dataset) * 0.7)
+    split_index = int(len(dataset) * 0.8)
 
     # 分割为训练集和验证集
     train_set = dataset[:split_index]
@@ -169,38 +169,5 @@ def build_tensor_dataset(dataset: [], scale: float, path):
                path + '/val.pth')
 
 
-def save_cnn_tensor_pth(data, label, type, source: str):
-    torch.save({'data': data, 'labels': label},
-               dataset_dir + '/cnn/' + source + "/" + type + ".pth")
-
-
-def build_tensor(data):
-    d_tensor = torch.tensor(data)
-
-    d = d_tensor[:, :-2]
-
-    d = torch.unsqueeze(d, dim=1)
-    l = d_tensor[:, -2:]
-
-    return d, l
-
-
-def random_extract(data: [], per: int):
-    if per > 100 or per < 0:
-        return []
-
-    sample_size = max(1, int(len(data) * (per / 100) + 0.5))  # 向上取整
-    # 生成随机索引（不重复）
-    indices = random.sample(range(len(data)), sample_size)
-    # 提取抽样元素（保留顺序）
-    sampled_list = [data[i] for i in indices]
-
-    # 删除原列表中的抽样元素（按索引倒序删除，避免索引错位）
-    for i in sorted(indices, reverse=True):
-        del data[i]
-
-    return sampled_list
-
-
 if __name__ == '__main__':
-    run(6, 'lll')
+    run(10, '1759800148367')

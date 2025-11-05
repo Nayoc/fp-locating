@@ -5,6 +5,7 @@ from flask import Flask, request, jsonify
 import build
 import db.mapper as mapper
 import train
+import locate
 import threading
 import logging
 
@@ -19,41 +20,41 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ------------------------------
-# GET接口示例 - 获取资源
-# ------------------------------
-@app.route('/api/resources', methods=['GET'])
-def get_resources():
-    """获取资源列表接口"""
-    try:
-        # 1. 获取请求参数（查询字符串）
-        # 示例：/api/resources?page=1&status=active
-        page = request.args.get('page', 1, type=int)
-        status = request.args.get('status', 'all')
-
-        # 2. 业务逻辑处理（请在这里填充你的代码）
-        # TODO: 实现数据查询、处理等逻辑
-        # 临时模拟数据
-        data = [
-            {"id": 1, "name": "资源1", "status": "active"},
-            {"id": 2, "name": "资源2", "status": "inactive"}
-        ]
-
-        # 3. 构造响应
-        return jsonify({
-            "success": True,
-            "message": "查询成功",
-            "data": data,
-            "page": page,
-            "total": len(data)
-        }), 200
-
-    except Exception as e:
-        # 错误处理
-        return jsonify({
-            "success": False,
-            "message": f"查询失败: {str(e)}"
-        }), 500
+# # ------------------------------
+# # GET接口示例 - 获取资源
+# # ------------------------------
+# @app.route('/api/resources', methods=['GET'])
+# def get_resources():
+#     """获取资源列表接口"""
+#     try:
+#         # 1. 获取请求参数（查询字符串）
+#         # 示例：/api/resources?page=1&status=active
+#         page = request.args.get('page', 1, type=int)
+#         status = request.args.get('status', 'all')
+#
+#         # 2. 业务逻辑处理（请在这里填充你的代码）
+#         # TODO: 实现数据查询、处理等逻辑
+#         # 临时模拟数据
+#         data = [
+#             {"id": 1, "name": "资源1", "status": "active"},
+#             {"id": 2, "name": "资源2", "status": "inactive"}
+#         ]
+#
+#         # 3. 构造响应
+#         return jsonify({
+#             "success": True,
+#             "message": "查询成功",
+#             "data": data,
+#             "page": page,
+#             "total": len(data)
+#         }), 200
+#
+#     except Exception as e:
+#         # 错误处理
+#         return jsonify({
+#             "success": False,
+#             "message": f"查询失败: {str(e)}"
+#         }), 500
 
 
 # ------------------------------
@@ -79,7 +80,7 @@ def build_dataset():
         model = request_data['model']
 
         # 3. 业务逻辑处理（请在这里填充你的代码）
-        dir_name = build.run(space_id, batch_id, model=model)
+        dir_name,wifi_header,cell_header = build.run(space_id, batch_id, model=model)
 
         # 4. 构造响应
         return jsonify({
@@ -163,6 +164,42 @@ def train_dataset():
             name=f"TrainThread-{dataset_id}",
         )
         train_thread.start()
+
+        # 6. 主线程直接返回成功（无需等待子线程完成）
+        return jsonify({
+            "success": True,
+            "message": "success",
+            "data": "success"
+        }), 200
+
+    except Exception as e:
+        # 主线程（参数校验、数据库查询阶段）的异常捕获
+        logger.error("训练任务启动失败（主线程异常）", exc_info=True)
+        return jsonify({
+            "success": True,
+            "message": f"训练任务启动失败：{str(e)}"
+        }), 500
+
+@app.route('/data/locate', methods=['POST'])
+def locate():
+    try:
+        # 1. 解析并验证请求参数
+        request_data = request.get_json()
+        if not request_data:
+            return jsonify({
+                "success": True,
+                "message": "请求数据不能为空"
+            }), 400
+
+        model_file = request_data.get('modelFile')
+        rp_list = request_data.get('rpList')
+        if model_file is None or rp_list is None:
+            return jsonify({
+                "success": True,
+                "message": "缺少必填参数：datasetId"
+            }), 400
+
+        point = locate.run(rp_list,model_file)
 
         # 6. 主线程直接返回成功（无需等待子线程完成）
         return jsonify({
