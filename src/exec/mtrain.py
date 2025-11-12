@@ -149,7 +149,7 @@ def judge_loss_weight(num):
 
 
 def train(net, train_iter, val_iter, loss, num_epochs, label_norm,
-          model_file='fpcnn.params', record_term=100):
+          model_file, record_term=100):
     # 加载上次保存的学习率，若没有则使用默认学习率
     lr = load_lr()
     print('current learning rate:' + str(lr))
@@ -233,7 +233,7 @@ def train(net, train_iter, val_iter, loss, num_epochs, label_norm,
     assert test_acc <= 1 and test_acc >= 0, test_acc
 
     # 训练结束后，保存最终学习率到文件
-    save_lr(scheduler.get_last_lr()[0])
+    # save_lr(scheduler.get_last_lr()[0])
 
     save_model(net, model_file)
 
@@ -253,14 +253,15 @@ def gpu_parallel(net):
     return device, net
 
 
-def save_model(net, params_file='/fpcnn.params'):
+def save_model(net, params_file):
+    file = model_path + '/' + params_file
     # 判断模型是否被DataParallel包装
     if isinstance(net, torch.nn.DataParallel):
         # 多GPU场景：保存net.module的参数
-        torch.save(net.module.state_dict(), f"{params_file}")
+        torch.save(net.module.state_dict(), f"{file}")
     else:
         # 单GPU/CPU场景：直接保存net的参数
-        torch.save(net.state_dict(), f"{params_file}")
+        torch.save(net.state_dict(), f"{file}")
 
 
 def load_model(net, filename):

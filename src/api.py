@@ -80,7 +80,7 @@ def build_dataset():
         model = request_data['model']
 
         # 3. 业务逻辑处理（请在这里填充你的代码）
-        dir_name,wifi_header,cell_header = build.run(space_id, batch_id, model=model)
+        dir_name = build.run(space_id, batch_id, model=model)
 
         # 4. 构造响应
         return jsonify({
