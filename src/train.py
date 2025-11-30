@@ -15,15 +15,15 @@ data_dir = root_dir + '/data'
 
 
 def run(space_id: int, dataset_id: int, data_path, norm_y, batch_size=50, epochs=300, record_term=30):
-    label_norm = MaxminNorm(norm_y, 0)
+    # label_norm = MaxminNorm(norm_y, 0)
+    label_norm = None
 
     file_path = data_dir + data_path
-    train_iter, val_iter, shape = load_wifi(file_path, source='cell', batch_size=batch_size)
+    cell_train_iter, cell_test_iter, wifi_train_iter, wifi_test_iter, fusion_train_iter, fusion_test_iter = load_data(file_path, batch_size)
 
-    # 数组显示8位
-    torch.set_printoptions(precision=8)
-    net = mnn.CellCNN(in_channels=2)
-    loss = nn.CrossEntropyLoss()
+    net = mnn.CellWifiFusionModel(cell_in_channels=cell_train_iter.dataset[0][0].shape[0], wifi_in_channels=1, base_feat_channels=5,
+                                fused_hidden=128, cell_bias_init=1.0)
+    loss = nn.MSELoss()
 
     model_name = str(space_id) + '_' + str(dataset_id)
     model_file = model_name + '.params'
@@ -31,7 +31,7 @@ def run(space_id: int, dataset_id: int, data_path, norm_y, batch_size=50, epochs
     mapper.update_dataset_status(dataset_id, 'doing')
 
     try:
-        train.train(net, train_iter, val_iter, loss, epochs, label_norm,
+        train.train(net, fusion_train_iter, fusion_test_iter, loss, epochs, label_norm,
                     model_file, record_term=record_term)
     except Exception as e:
         mapper.update_dataset_status(dataset_id, 'fail')
@@ -41,28 +41,29 @@ def run(space_id: int, dataset_id: int, data_path, norm_y, batch_size=50, epochs
     print('——————————————————————ending training——————————————————————')
 
 
-def load_wifi(data_path, source='cell', batch_size=64):
-    train_set = torch.load(data_path + '/' + source + '_train.pth')
-    val_set = torch.load(data_path + '/' + source + '_val.pth')
 
-    train_data = train_set['data']
-    val_data = val_set['data']
+def load_data(path, batch_size=64):
+    cell = torch.load(path + '/cell.pth')
+    wifi = torch.load(path + '/wifi.pth')
+    fusion = torch.load(path + '/fusion.pth')
 
-    train_label = train_set['labels']
-    val_label = val_set['labels']
+    cell_train_iter = data.DataLoader(cell['train'], batch_size=batch_size, shuffle=True, num_workers=8,
+                                      pin_memory=True)
+    cell_test_iter = data.DataLoader(cell['test'], batch_size=batch_size, shuffle=True, num_workers=8,
+                                     pin_memory=True)
 
-    print('训练数据shape:' + str(train_data.shape))
+    wifi_train_iter = data.DataLoader(wifi['train'], batch_size=batch_size, shuffle=True, num_workers=8,
+                                      pin_memory=True)
+    wifi_test_iter = data.DataLoader(wifi['test'], batch_size=batch_size, shuffle=True, num_workers=8,
+                                     pin_memory=True)
 
-    train_set = data.TensorDataset(train_data, train_label)
-    validation_set = data.TensorDataset(val_data, val_label)
-
-    train_iter = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=8,
+    fusion_train_iter = data.DataLoader(fusion['train'], batch_size=batch_size, shuffle=True, num_workers=8,
                                  pin_memory=True)
-    validation_iter = data.DataLoader(validation_set, batch_size=batch_size, shuffle=True, num_workers=8,
+    fusion_test_iter = data.DataLoader(fusion['test'], batch_size=batch_size, shuffle=True, num_workers=8,
                                       pin_memory=True)
 
-    return train_iter, validation_iter, train_data.shape
+    return cell_train_iter,cell_test_iter,wifi_train_iter,wifi_test_iter,fusion_train_iter,fusion_test_iter
 
 
 if __name__ == '__main__':
-    run(11, 10004, '/11/collection_1762914886271', 15, batch_size=50)
+    run(10, 10004, '/10/collection_test', 15, batch_size=32)

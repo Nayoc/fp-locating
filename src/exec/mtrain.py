@@ -45,8 +45,10 @@ def count_geodesic_distance(y_hat, y, norm, p=False):
 
 # 一般距离
 def count_normal_distance(y_hat, y, norm, p=False):
-    y_hat = norm.denorm(y_hat)
-    y = norm.denorm(y)
+
+    if norm is not None:
+        y_hat = norm.denorm(y_hat)
+        y = norm.denorm(y)
 
     distance = cu.calc_normal_distance(y_hat, y)
     accuracy = (distance < error_scale_2).sum().item()
@@ -76,13 +78,19 @@ def evaluate_result(net, device, data_iter, norm):
         net.eval()  # 将模型设置为评估模式
     metric = Accumulator(2)  # 正确预测数、预测总数
     with torch.no_grad():
-        for X, y in data_iter:
-            X, y = X.to(device), y.to(device)
+        # for X, y in data_iter:
+        #     X, y = X.to(device), y.to(device)
+        #     distance = count_normal_distance(net(X), y, norm)
+        #     metric.add(distance[0], y.numel() / 2)
 
-            # distance = count_geodesic_distance(net(X), y, norm)
-            distance = count_normal_distance(net(X), y, norm)
-
+        for cell_X, wifi_X, y in data_iter:
+            cell_X = cell_X.to(device, dtype=torch.float)
+            wifi_X = wifi_X.to(device, dtype=torch.float)
+            y = y.to(device, dtype=torch.float)
+            distance = count_normal_distance(net(cell_X, wifi_X), y, norm)
             metric.add(distance[0], y.numel() / 2)
+
+
     return metric[0] / metric[1], distance[1], distance[2], distance[3]
 
 
@@ -107,22 +115,28 @@ def train_epoch(net, device, train_iter, loss, updater, scheduler, label_norm):
         net.train()
     # 训练损失总和、训练准确度总和、样本数、平均误差距离、最小误差距离、最大误差距离
     metric = Accumulator(3)
-    for batch_idx, (X, y) in enumerate(train_iter):
-        X, y = X.to(device), y.to(device)
-        # print(f"Batch {batch_idx}: Data is on device: {X.device}")
 
-        # 计算梯度并更新参数
-        y_hat = net(X)
+    # 多模态
+    for batch_idx, (cell_X, wifi_X, y) in enumerate(train_iter):
+        cell_X = cell_X.to(device, dtype=torch.float)
+        wifi_X = wifi_X.to(device, dtype=torch.float)
+        y = y.to(device, dtype=torch.float)
+        updater.zero_grad()
+        y_hat = net(cell_X, wifi_X)
+
+    # 单模态
+    # for batch_idx, (X, y) in enumerate(train_iter):
+    #     X, y = X.to(device), y.to(device)
+    #     updater.zero_grad()
+    #     y_hat = net(X)
+    #     print(f"Batch {batch_idx}: Data is on device: {X.device}")
+
         l = loss(y_hat, y)
-        if isinstance(updater, torch.optim.Optimizer):
-            # 使用PyTorch内置的优化器和损失函数
-            updater.zero_grad()
-            l.mean().backward(retain_graph=True)
-            updater.step()
-        else:
-            # 使用定制的优化器和损失函数
-            l.sum().backward(retain_graph=True)
-            updater(X.shape[0])
+
+        l.mean().backward()
+
+        torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=5.0)
+        updater.step()
         scheduler.step()
 
         distance = count_normal_distance(y_hat, y, label_norm)
