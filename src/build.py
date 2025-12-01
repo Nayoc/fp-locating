@@ -94,72 +94,82 @@ def build_cell_format_dataset_multi_channel(dataset, path, step=16):
     text_tool = TxtArrayTool()
     cell_order = []
 
-    if os.path.exists(cell_order_file):
-        cell_order = text_tool.read(cell_order_file)
-        cell_order = list(dict.fromkeys(cell_order))
-    else:
-        unique_ap_ids = []
-        for row in dataset:
-            ap_id = row.get('ap_id')
-            if ap_id and ap_id not in unique_ap_ids:
-                unique_ap_ids.append(ap_id)
-        cell_order = unique_ap_ids
-
-        text_tool.write(cell_order_file, cell_order)
-
+    # ---------------------- 核心修改1：先构建坐标分组，再筛选全局公共基站 ----------------------
     coordinate_groups = {}
-
-    # ---------------------- 步骤1：按ap_id分组（每个ap_id对应一个基站的所有数据） ----------------------
     for row in dataset:
-        # 获取坐标作为分组键（保留两位小数避免浮点数精度问题）
         rp_x = round(row.get('rp_x', 0), 2)
         rp_y = round(row.get('rp_y', 0), 2)
         coord_key = (rp_x, rp_y)
-
         ap_id = row.get('ap_id')
 
-        rsrp = float(row.get('ap_rsrp', -120))  # 无效值用-120填充（符合基站信号范围）
-        rsrq = float(row.get('ap_rsrq', -20))  # 无效值用-20填充
-        sinr = float(row.get('ap_sinr', -10))  # 无效值用-10填充
+        if not ap_id:  # 跳过无AP ID的无效数据
+            continue
+
+        rsrp = float(row.get('ap_rsrp', -120))
+        rsrq = float(row.get('ap_rsrq', -20))
+        sinr = float(row.get('ap_sinr', -10))
 
         if coord_key not in coordinate_groups:
             coordinate_groups[coord_key] = {}
-
         if ap_id not in coordinate_groups[coord_key]:
             coordinate_groups[coord_key][ap_id] = []
-
         coordinate_groups[coord_key][ap_id].append([rsrp, rsrq, sinr])
 
+    # 步骤2：统计每个基站的“有效坐标数”（即该基站在多少个坐标点上有数据）
+    total_coord_count = len(coordinate_groups)  # 总坐标点数量
+    ap_coord_count = {}  # key: ap_id, value: 该基站存在的坐标数
+    for coord_key, ap_dict in coordinate_groups.items():
+        for ap_id in ap_dict:
+            if len(ap_dict[ap_id]) > 0:  # 仅统计有有效信号的基站
+                ap_coord_count[ap_id] = ap_coord_count.get(ap_id, 0) + 1
+
+    # 步骤3：筛选“全局公共基站”（存在于所有坐标点的基站）
+    common_ap_ids = [ap_id for ap_id, count in ap_coord_count.items() if count == total_coord_count]
+    if not common_ap_ids:
+        raise ValueError("无全局公共基站！所有基站都未在所有坐标点上出现，请检查数据集。")
+    print(f"全局公共基站数：{len(common_ap_ids)}，基站列表：{common_ap_ids}")
+
+    # ---------------------- 基站顺序读取/保存（基于公共基站） ----------------------
+    if os.path.exists(cell_order_file):
+        # 读取已保存的顺序，仅保留其中的公共基站（确保兼容性）
+        saved_order = text_tool.read(cell_order_file)
+        cell_order = [ap_id for ap_id in saved_order if ap_id in common_ap_ids]
+        # 补充未在saved_order中但属于公共基站的ID（按首次出现顺序）
+        for ap_id in common_ap_ids:
+            if ap_id not in cell_order:
+                cell_order.append(ap_id)
+    else:
+        # 首次运行：公共基站按“数据集首次出现顺序”排序
+        unique_common_aps = []
+        for row in dataset:
+            ap_id = row.get('ap_id')
+            if ap_id in common_ap_ids and ap_id not in unique_common_aps:
+                unique_common_aps.append(ap_id)
+        cell_order = unique_common_aps
+        # 保存公共基站顺序（覆盖原cell_order.txt，仅存公共基站）
+        text_tool.write(cell_order_file, cell_order)
+        print(f"公共基站顺序已保存到：{cell_order_file}")
+
+    # ---------------------- 数据构建（仅用公共基站，无默认填充） ----------------------
     final_coord_data = {}
     slide_step = step // 2
 
     for (rp_x, rp_y), ap_dict in coordinate_groups.items():
         coord_key = (rp_x, rp_y)
-        all_fingerprints = []  # 存储该坐标下所有基站的所有滑动片段
+        all_fingerprints = []
 
-        # 取所有有数据基站的原始信号长度，用最大值作为默认信号的长度（确保滑动后片段数一致）
-        valid_signal_lengths = []
-        for ap_id in ap_dict:
-            signal_len = len(ap_dict[ap_id])
-            if signal_len > 0:
-                valid_signal_lengths.append(signal_len)
-
-        # 若当前坐标下所有基站都无数据，默认信号长度设为 step（避免空列表）
-        default_signal_len = max(valid_signal_lengths) if valid_signal_lengths else step
-
-        # ---------------------- 按cell_order顺序遍历基站（核心修改） ----------------------
+        # 按公共基站顺序遍历（每个基站在当前坐标都有数据，无需默认填充）
         for ap_id in cell_order:
-            if ap_id not in ap_dict:
-                default_signal = [[-120.0, -20.0, -10.0]] * default_signal_len  # 长度=default_signal_len
-                result = slide_extend_pic(default_signal, step, slide_step)
-            else:
-                signal_data = ap_dict[ap_id]
-                result = slide_extend_pic(signal_data, step, slide_step)
+            signal_data = ap_dict[ap_id]  # 必然存在（公共基站特性）
+            result = slide_extend_pic(signal_data, step, slide_step)
             all_fingerprints.append(result)
 
-        # ---------------------- 该坐标下所有片段合并（按基站顺序+滑动顺序） ----------------------
-        if all_fingerprints:  # 仅保留有有效片段的坐标
-            final_coord_data[coord_key] = all_fingerprints
+        # 验证所有基站的片段数一致（可选，调试用）
+        frag_counts = [len(frag) for frag in all_fingerprints]
+        if len(set(frag_counts)) > 1:
+            print(f"警告：坐标({rp_x},{rp_y})的基站片段数不一致：{frag_counts}")
+
+        final_coord_data[coord_key] = all_fingerprints
 
     return final_coord_data
 
