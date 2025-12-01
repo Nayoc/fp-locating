@@ -66,4 +66,4 @@ def load_data(path, batch_size=64):
 
 
 if __name__ == '__main__':
-    run(10, 10004, '/10/collection_test', 15, batch_size=32)
+    run(10, 1, '/10/collection_1764498718525', 15, batch_size=32)

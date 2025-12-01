@@ -13,8 +13,6 @@ from util.txt_utils import TxtArrayTool
 root_dir = str(Path(os.path.abspath(__file__)).parent.parent)
 dataset_dir = root_dir + '/data'
 
-min_rsrp = -140
-
 
 def run(space_id: int, batch_id: str, model='collection'):
     dir_name = '/' + str(space_id) + '/' + model + '_' + batch_id
@@ -30,9 +28,9 @@ def run(space_id: int, batch_id: str, model='collection'):
 
     wifi_set, cell_set = split_train_test(space_id)
 
-    cell_data = build_cell_format_dataset_3_channel(cell_set)
+    cell_data = build_cell_format_dataset_multi_channel(cell_set, directory)
     wifi_data = build_wifi_format_dataset(wifi_set, directory)
-    build_tensor_dataset(cell_data, wifi_data, directory)
+    build_tensor_dataset(cell_data, wifi_data, path=directory)
 
     return dir_name
 
@@ -78,9 +76,6 @@ def split_train_test(spaceId: int):
     return wifi_set, cell_set,
 
 
-text_tool = TxtArrayTool()
-
-
 # ---------------------- 辅助函数：时序滑动截取（不变） ----------------------
 def slide_extend_pic(data, step, slide_step):
     t_len = len(data)
@@ -94,7 +89,24 @@ def slide_extend_pic(data, step, slide_step):
         return np.array(frags, dtype=np.float32)
 
 
-def build_cell_format_dataset_3_channel(dataset, step=16):
+def build_cell_format_dataset_multi_channel(dataset, path, step=16):
+    cell_order_file = os.path.join(path, 'cell_order.txt')
+    text_tool = TxtArrayTool()
+    cell_order = []
+
+    if os.path.exists(cell_order_file):
+        cell_order = text_tool.read(cell_order_file)
+        cell_order = list(dict.fromkeys(cell_order))
+    else:
+        unique_ap_ids = []
+        for row in dataset:
+            ap_id = row.get('ap_id')
+            if ap_id and ap_id not in unique_ap_ids:
+                unique_ap_ids.append(ap_id)
+        cell_order = unique_ap_ids
+
+        text_tool.write(cell_order_file, cell_order)
+
     coordinate_groups = {}
 
     # ---------------------- 步骤1：按ap_id分组（每个ap_id对应一个基站的所有数据） ----------------------
@@ -125,9 +137,24 @@ def build_cell_format_dataset_3_channel(dataset, step=16):
         coord_key = (rp_x, rp_y)
         all_fingerprints = []  # 存储该坐标下所有基站的所有滑动片段
 
-        # ---------------------- 遍历该坐标下的每个基站 ----------------------
-        for ap_id, signal_data in ap_dict.items():
-            result = slide_extend_pic(signal_data, step, slide_step)
+        # 取所有有数据基站的原始信号长度，用最大值作为默认信号的长度（确保滑动后片段数一致）
+        valid_signal_lengths = []
+        for ap_id in ap_dict:
+            signal_len = len(ap_dict[ap_id])
+            if signal_len > 0:
+                valid_signal_lengths.append(signal_len)
+
+        # 若当前坐标下所有基站都无数据，默认信号长度设为 step（避免空列表）
+        default_signal_len = max(valid_signal_lengths) if valid_signal_lengths else step
+
+        # ---------------------- 按cell_order顺序遍历基站（核心修改） ----------------------
+        for ap_id in cell_order:
+            if ap_id not in ap_dict:
+                default_signal = [[-120.0, -20.0, -10.0]] * default_signal_len  # 长度=default_signal_len
+                result = slide_extend_pic(default_signal, step, slide_step)
+            else:
+                signal_data = ap_dict[ap_id]
+                result = slide_extend_pic(signal_data, step, slide_step)
             all_fingerprints.append(result)
 
         # ---------------------- 该坐标下所有片段合并（按基站顺序+滑动顺序） ----------------------
@@ -139,14 +166,19 @@ def build_cell_format_dataset_3_channel(dataset, step=16):
 
 def build_wifi_format_dataset(dataset, path, step=16, max_ap=10):
     # 1.固定wifi顺序
-    header = []
-    for record in dataset:
-        ap_id = record.get('ap_id')
-        if ap_id and ap_id not in header and len(header) < max_ap:
-            header.append(ap_id)
-    # 若AP不足10个，剩余位置用无效标记填充（后续用-120dBm填充）
-    while len(header) < max_ap:
-        header.append(f"AP_EMPTY_{len(header)}")
+    text_tool = TxtArrayTool()
+    header = text_tool.read(path + '/wifi_order.txt')
+
+    if not header:
+        for record in dataset:
+            ap_id = record.get('ap_id')
+            if ap_id and ap_id not in header and len(header) < max_ap:
+                header.append(ap_id)
+        # 若AP不足10个，剩余位置用无效标记填充（后续用-120dBm填充）
+        while len(header) < max_ap:
+            header.append(f"AP_EMPTY_{len(header)}")
+
+        text_tool.write(path + '/wifi_order.txt', header)
 
     # 2.根据rp点分组数据
     coordinate_groups = {}
@@ -179,13 +211,10 @@ def build_wifi_format_dataset(dataset, path, step=16, max_ap=10):
         result = slide_extend_pic(signal_data, step, slide_step)
         final_coord_data[coord_key] = result
 
-    text_tool = TxtArrayTool()
-    text_tool.write(path + '/header_order.txt', header)
-
     return final_coord_data
 
 
-def build_tensor_dataset(cell_data, wifi_data, path, test_ratio=0.3, seed=42):
+def build_tensor_dataset(cell_data, wifi_data, path=None, test_ratio=0.3, seed=42):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -227,7 +256,7 @@ def build_tensor_dataset(cell_data, wifi_data, path, test_ratio=0.3, seed=42):
             continue
 
         # 构建当前坐标的所有Cell样本
-        cell_batch = np.stack([frags[:min_ap_len] for frags in cell_frags], axis=1)  # (n_c, m, 16, 3)
+        cell_batch = np.swapaxes(cell_frags, 0, 1)
         cell_batch_labels = [coord] * min_ap_len
 
         # 根据坐标划分，分配到训练集或测试集
@@ -338,11 +367,11 @@ def build_tensor_dataset(cell_data, wifi_data, path, test_ratio=0.3, seed=42):
     print(f"Fusion - 训练集{len(fusion_train)}样本, 测试集{len(fusion_test)}样本")
 
     # ---------------------- 4. 保存pth文件 ----------------------
-    torch.save({'train': cell_train, 'test': cell_test}, path + '/cell.pth')
-    torch.save({'train': wifi_train, 'test': wifi_test}, path + '/wifi.pth')
-    torch.save({'train': fusion_train, 'test': fusion_test}, path + '/fusion.pth')
-
-    print("\n数据集保存完成：")
+    if path:
+        torch.save({'train': cell_train, 'test': cell_test}, path + '/cell.pth')
+        torch.save({'train': wifi_train, 'test': wifi_test}, path + '/wifi.pth')
+        torch.save({'train': fusion_train, 'test': fusion_test}, path + '/fusion.pth')
+        print("\n数据集保存完成：")
     print(f"- Cell: 训练集{len(cell_train)}样本, 测试集{len(cell_test)}样本 (shape: {cell_train[0][0].shape[1:]})")
     print(f"- WiFi: 训练集{len(wifi_train)}样本, 测试集{len(wifi_test)}样本 (shape: {wifi_train[0][0].shape[1:]})")
     print(f"- Fusion: 训练集{len(fusion_train)}样本, 测试集{len(fusion_test)}样本")
@@ -364,4 +393,4 @@ def slide_extend_pic(dataset, step: int, slide_step: int):
 
 
 if __name__ == '__main__':
-    run(10, 'test')
+    run(10, '1764498718525')

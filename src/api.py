@@ -181,40 +181,49 @@ def train_dataset():
         }), 500
 
 @app.route('/data/locate', methods=['POST'])
-def locate():
+def location():
     try:
         # 1. 解析并验证请求参数
         request_data = request.get_json()
         if not request_data:
             return jsonify({
-                "success": True,
+                "code": 400,
                 "message": "请求数据不能为空"
             }), 400
 
+        dataset_url = request_data.get('datasetUrl')
         model_file = request_data.get('modelFile')
-        rp_list = request_data.get('rpList')
-        if model_file is None or rp_list is None:
+        ap_list = request_data.get('apList')
+        if model_file is None or ap_list is None:
             return jsonify({
-                "success": True,
+                "code": 400,
                 "message": "缺少必填参数：datasetId"
             }), 400
 
-        point = locate.run(rp_list,model_file)
+        x,y = locate.run(dataset_url,ap_list,model_file)
 
         # 6. 主线程直接返回成功（无需等待子线程完成）
         return jsonify({
-            "success": True,
+            "code": 1,
             "message": "success",
-            "data": "success"
+            "data": {
+                "x":x,
+                "y":y
+            }
         }), 200
 
     except Exception as e:
-        # 主线程（参数校验、数据库查询阶段）的异常捕获
-        logger.error("训练任务启动失败（主线程异常）", exc_info=True)
+        logger.error("定位失败", exc_info=True)
         return jsonify({
-            "success": True,
-            "message": f"训练任务启动失败：{str(e)}"
+            "code": 500,
+            "message": f"定位失败：{str(e)}"
         }), 500
+
+# 添加测试接口
+@app.route('/test', methods=['GET'])
+def test():
+    return jsonify({"code": 1, "message": "服务正常运行"}), 200
+
 
 # 启动服务
 if __name__ == '__main__':

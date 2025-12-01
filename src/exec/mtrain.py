@@ -2,6 +2,7 @@ import logging
 import os
 
 import torch
+from numpy.f2py.auxfuncs import throw_error
 from torch import nn
 
 import util.coor_utils as cu
@@ -45,7 +46,6 @@ def count_geodesic_distance(y_hat, y, norm, p=False):
 
 # 一般距离
 def count_normal_distance(y_hat, y, norm, p=False):
-
     if norm is not None:
         y_hat = norm.denorm(y_hat)
         y = norm.denorm(y)
@@ -90,20 +90,26 @@ def evaluate_result(net, device, data_iter, norm):
             distance = count_normal_distance(net(cell_X, wifi_X), y, norm)
             metric.add(distance[0], y.numel() / 2)
 
-
     return metric[0] / metric[1], distance[1], distance[2], distance[3]
 
 
-def calculate(net, device, data, norm):
+def calculate(net, device, data, model=0):
     if isinstance(net, torch.nn.Module):
         net.eval()  # 将模型设置为评估模式
 
     net.to(device)
-    data.to(device)
 
-    with torch.no_grad():
-        predictions = net(data)
-        predictions = norm.denorm(predictions)
+    if model == 0:
+        data.to(device)
+        with torch.no_grad():
+            predictions = net(data)
+    else:
+        cell_X = data['cell']
+        wifi_X = data['wifi']
+        cell_X = cell_X.to(device, dtype=torch.float)
+        wifi_X = wifi_X.to(device, dtype=torch.float)
+        with torch.no_grad():
+            predictions = net(cell_X,wifi_X)
 
     return predictions
 
@@ -124,12 +130,12 @@ def train_epoch(net, device, train_iter, loss, updater, scheduler, label_norm):
         updater.zero_grad()
         y_hat = net(cell_X, wifi_X)
 
-    # 单模态
-    # for batch_idx, (X, y) in enumerate(train_iter):
-    #     X, y = X.to(device), y.to(device)
-    #     updater.zero_grad()
-    #     y_hat = net(X)
-    #     print(f"Batch {batch_idx}: Data is on device: {X.device}")
+        # 单模态
+        # for batch_idx, (X, y) in enumerate(train_iter):
+        #     X, y = X.to(device), y.to(device)
+        #     updater.zero_grad()
+        #     y_hat = net(X)
+        #     print(f"Batch {batch_idx}: Data is on device: {X.device}")
 
         l = loss(y_hat, y)
 
@@ -278,16 +284,19 @@ def save_model(net, params_file):
         torch.save(net.state_dict(), f"{file}")
 
 
-def load_model(net, filename):
+def load_model(net, filename,mode='train'):
     try:
-        net.load_state_dict(torch.load(model_path + '/' + filename))
+        state_dict = torch.load(model_path + '/' + filename, map_location=try_gpu())
+        net.load_state_dict(state_dict)
         net.eval()
         print(filename + ' is loaded')
         return net
     except Exception as e:
-        print('no model is loaded')
-        return net
-
+        if mode=='train':
+            print('no model is loaded')
+            return net
+        else:
+            raise
 
 def save_lr(lr):
     with open(lr_file, 'w') as f:
