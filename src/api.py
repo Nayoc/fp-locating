@@ -76,20 +76,37 @@ def build_dataset():
             }), 400
 
         space_id = request_data['spaceId']
+        dataset_id = request_data['datasetId']
         batch_id = request_data['batchId']
         model = request_data['model']
 
-        # 3. 业务逻辑处理（请在这里填充你的代码）
-        dir_name = build.run(space_id, batch_id, model=model)
+        def run_async(space_id, dataset_id):
+            try:
+                # 构建数据集
+                dir_name = build.run(space_id, batch_id, model=model)
+                # 训练数据
+                train.run(space_id, dataset_id, dir_name)
+            except Exception as e:
+                # 子线程异常必须捕获并记录，否则会静默失败
+                logger.error(
+                    f"异步训练任务失败（spaceId: {space_id}, datasetId: {dataset_id}）",
+                    exc_info=True  # exc_info=True 会记录完整的异常堆栈，方便排查
+                )
+
+        # 5. 启动子线程执行训练（daemon=True：主线程退出时子线程自动退出，避免僵尸线程）
+        train_thread = threading.Thread(
+            target=run_async,
+            args=(space_id, dataset_id),
+            name=f"TrainThread-{dataset_id}",
+        )
+        train_thread.start()
 
         # 4. 构造响应
         return jsonify({
             "code": 1,
             "message": "success",
-            "data": {
-                "dirName": dir_name
-            }
-        }), 201
+            "data": "success"
+        }), 200
 
     except Exception as e:
         # 错误处理
@@ -147,9 +164,9 @@ def train_dataset():
         space_id = space.get('id')
 
         # 4. 定义子线程执行的训练函数（包含异常捕获，避免子线程崩溃无日志）
-        def run_train_async(space_id, dataset_id, dir_name, norm_y):
+        def run_train_async(space_id, dataset_id, dir_name):
             try:
-                train.run(space_id, dataset_id, dir_name, norm_y)
+                train.run(space_id, dataset_id, dir_name)
             except Exception as e:
                 # 子线程异常必须捕获并记录，否则会静默失败
                 logger.error(

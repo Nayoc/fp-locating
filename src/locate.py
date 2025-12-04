@@ -84,7 +84,7 @@ def run(dataset_url, ap_list, model_file):
         net = train.load_model(net, model_file, mode='eval')
 
         data = {'cell': cell_set, 'wifi': wifi_set}
-        predications = train.calculate(net, train.try_gpu(), data, model=1)
+        predications = train.calculate(net, train.try_gpu(), data, model=0)
 
         pred_cpu = predications.cpu()  # 转移到CPU（避免GPU tensor无法直接转标量）
         pred_np = pred_cpu.squeeze(0).numpy()

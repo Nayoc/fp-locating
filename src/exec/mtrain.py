@@ -2,7 +2,6 @@ import logging
 import os
 
 import torch
-from numpy.f2py.auxfuncs import throw_error
 from torch import nn
 
 import util.coor_utils as cu
@@ -72,23 +71,25 @@ class Accumulator:
         return self.data[idx]
 
 
-def evaluate_result(net, device, data_iter, norm):
+def evaluate_result(net, device, data_iter, norm, mode):
     """计算在指定数据集上模型的精度"""
     if isinstance(net, torch.nn.Module):
         net.eval()  # 将模型设置为评估模式
     metric = Accumulator(2)  # 正确预测数、预测总数
     with torch.no_grad():
-        # for X, y in data_iter:
-        #     X, y = X.to(device), y.to(device)
-        #     distance = count_normal_distance(net(X), y, norm)
-        #     metric.add(distance[0], y.numel() / 2)
+        if mode=='single':
+            for X, y in data_iter:
+                X, y = X.to(device), y.to(device)
+                distance = count_normal_distance(net(X), y, norm)
+                metric.add(distance[0], y.numel() / 2)
+        else:
+            for cell_X, wifi_X, y in data_iter:
+                cell_X = cell_X.to(device, dtype=torch.float)
+                wifi_X = wifi_X.to(device, dtype=torch.float)
+                y = y.to(device, dtype=torch.float)
+                distance = count_normal_distance(net(cell_X, wifi_X), y, norm)
+                metric.add(distance[0], y.numel() / 2)
 
-        for cell_X, wifi_X, y in data_iter:
-            cell_X = cell_X.to(device, dtype=torch.float)
-            wifi_X = wifi_X.to(device, dtype=torch.float)
-            y = y.to(device, dtype=torch.float)
-            distance = count_normal_distance(net(cell_X, wifi_X), y, norm)
-            metric.add(distance[0], y.numel() / 2)
 
     return metric[0] / metric[1], distance[1], distance[2], distance[3]
 
@@ -109,12 +110,12 @@ def calculate(net, device, data, model=0):
         cell_X = cell_X.to(device, dtype=torch.float)
         wifi_X = wifi_X.to(device, dtype=torch.float)
         with torch.no_grad():
-            predictions = net(cell_X,wifi_X)
+            predictions = net(cell_X, wifi_X)
 
     return predictions
 
 
-def train_epoch(net, device, train_iter, loss, updater, scheduler, label_norm):
+def train_epoch(net, device, train_iter, loss, updater, scheduler, label_norm, mode):
     """训练模型一个迭代周期（定义见第3章）"""
     # 将模型设置为训练模式
     if isinstance(net, torch.nn.Module):
@@ -122,32 +123,45 @@ def train_epoch(net, device, train_iter, loss, updater, scheduler, label_norm):
     # 训练损失总和、训练准确度总和、样本数、平均误差距离、最小误差距离、最大误差距离
     metric = Accumulator(3)
 
-    # 多模态
-    for batch_idx, (cell_X, wifi_X, y) in enumerate(train_iter):
-        cell_X = cell_X.to(device, dtype=torch.float)
-        wifi_X = wifi_X.to(device, dtype=torch.float)
-        y = y.to(device, dtype=torch.float)
-        updater.zero_grad()
-        y_hat = net(cell_X, wifi_X)
-
+    if mode == 'single':
         # 单模态
-        # for batch_idx, (X, y) in enumerate(train_iter):
-        #     X, y = X.to(device), y.to(device)
-        #     updater.zero_grad()
-        #     y_hat = net(X)
-        #     print(f"Batch {batch_idx}: Data is on device: {X.device}")
+        for batch_idx, (X, y) in enumerate(train_iter):
+            X, y = X.to(device), y.to(device)
+            updater.zero_grad()
+            y_hat = net(X)
 
-        l = loss(y_hat, y)
+            l = loss(y_hat, y)
 
-        l.mean().backward()
+            l.mean().backward()
 
-        torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=5.0)
-        updater.step()
-        scheduler.step()
+            torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=5.0)
+            updater.step()
+            scheduler.step()
 
-        distance = count_normal_distance(y_hat, y, label_norm)
-        # y.numel()/2是因为最后距离是是坐标聚合出来的，所以总数只有一半
-        metric.add(float(l.sum()), distance[0], y.numel() / 2)
+            distance = count_normal_distance(y_hat, y, label_norm)
+            # y.numel()/2是因为最后距离是是坐标聚合出来的，所以总数只有一半
+            metric.add(float(l.sum()), distance[0], y.numel() / 2)
+
+    else:
+        # 多模态
+        for batch_idx, (cell_X, wifi_X, y) in enumerate(train_iter):
+            cell_X = cell_X.to(device, dtype=torch.float)
+            wifi_X = wifi_X.to(device, dtype=torch.float)
+            y = y.to(device, dtype=torch.float)
+            updater.zero_grad()
+            y_hat = net(cell_X, wifi_X)
+
+            l = loss(y_hat, y)
+
+            l.mean().backward()
+
+            torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=5.0)
+            updater.step()
+            scheduler.step()
+
+            distance = count_normal_distance(y_hat, y, label_norm)
+            # y.numel()/2是因为最后距离是是坐标聚合出来的，所以总数只有一半
+            metric.add(float(l.sum()), distance[0], y.numel() / 2)
     # 返回训练损失和训练精度
     return metric[0] / metric[2], metric[1] / metric[2], distance[1], distance[2], distance[3]
 
@@ -169,7 +183,7 @@ def judge_loss_weight(num):
 
 
 def train(net, train_iter, val_iter, loss, num_epochs, label_norm,
-          model_file, record_term=100):
+          model_file, record_term=100, mode='single'):
     # 加载上次保存的学习率，若没有则使用默认学习率
     lr = load_lr()
     print('current learning rate:' + str(lr))
@@ -187,7 +201,7 @@ def train(net, train_iter, val_iter, loss, num_epochs, label_norm,
     # 预训练一次，确定损失数量级
     train_loss, train_acc, mean_error, min_error, max_error = train_epoch(net, device, train_iter, loss, trainer,
                                                                           scheduler,
-                                                                          label_norm)
+                                                                          label_norm, mode)
 
     animator_global = Animator(xlabel='epoch', xlim=[1, num_epochs], ylim=[0, 1],
                                legend=['train loss ', 'train acc', 'test acc'])
@@ -206,8 +220,9 @@ def train(net, train_iter, val_iter, loss, num_epochs, label_norm,
         train_loss, train_acc, train_mean_error, train_min_error, train_max_error = train_epoch(net, device, train_iter,
                                                                                                 loss,
                                                                                                 trainer, scheduler,
-                                                                                                label_norm)
-        test_acc, test_mean_error, test_min_error, test_max_error = evaluate_result(net, device, val_iter, label_norm)
+                                                                                                label_norm, mode)
+        test_acc, test_mean_error, test_min_error, test_max_error = evaluate_result(net, device, val_iter, label_norm,
+                                                                                    mode)
 
         if epoch == 0:
             # 调整损失值到0.1-1区间方便观察
@@ -284,7 +299,7 @@ def save_model(net, params_file):
         torch.save(net.state_dict(), f"{file}")
 
 
-def load_model(net, filename,mode='train'):
+def load_model(net, filename, mode='train'):
     try:
         state_dict = torch.load(model_path + '/' + filename, map_location=try_gpu())
         net.load_state_dict(state_dict)
@@ -292,11 +307,12 @@ def load_model(net, filename,mode='train'):
         print(filename + ' is loaded')
         return net
     except Exception as e:
-        if mode=='train':
+        if mode == 'train':
             print('no model is loaded')
             return net
         else:
             raise
+
 
 def save_lr(lr):
     with open(lr_file, 'w') as f:
