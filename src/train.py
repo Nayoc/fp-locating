@@ -13,7 +13,7 @@ root_dir = str(Path(os.path.abspath(__file__)).parent.parent)
 data_dir = root_dir + '/data'
 
 
-def run(space_id: int, dataset_id: int, data_path, batch_size=50, epochs=300, record_term=30):
+def run(space_id: int, dataset_id: int, data_path, batch_size=50, epochs=300, record_term=50):
     print('current train data:' + data_path)
     label_norm = None
 
@@ -71,4 +71,4 @@ def load_data(path, batch_size=64):
 
 
 if __name__ == '__main__':
-    run(15, 10012, '/15/collection_1764748570471', batch_size=32)
+    run(19, 10015, '/19/collection_19test', batch_size=32)

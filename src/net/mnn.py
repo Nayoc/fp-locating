@@ -33,36 +33,6 @@ class BasicCnnExtra(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.feature_extractor(x)
 
-
-class BasicCnn(nn.Module):
-    def __init__(self, in_channels: int = 1, out_dim: int = 2, dropout_rate: float = 0.3):
-        super().__init__()
-        self.dropout_rate = dropout_rate
-
-        # 用Sequential封装4个卷积块（Conv→BN→ReLU），精简重复代码
-        self.feature_extractor = BasicCnnExtra(in_channels=in_channels, dropout_rate=dropout_rate)
-
-        self.dropout = nn.Dropout(dropout_rate)
-        self.fc = nn.Linear(1, out_dim)  # 占位，后续动态修改
-
-    def _calc_flatten_dim(self, img_h: int, img_w: int) -> int:
-        return 5 * img_h * img_w  # 最后一层卷积输出5通道，特征图尺寸=输入尺寸
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        batch_size, _, img_h, img_w = x.shape
-
-        # 首次前向时，动态初始化全连接层输入维度
-        if self.fc.in_features == 1:
-            flatten_dim = self._calc_flatten_dim(img_h, img_w)
-            self.fc = nn.Linear(flatten_dim, self.fc.out_features).to(x.device)
-
-        # 特征提取 → Flatten → Dropout → 分类
-        x = self.feature_extractor(x)
-        x = x.view(batch_size, -1)  # (batch_size, 5*img_h*img_w)
-        x = self.dropout(x)
-        return self.fc(x)
-
-
 class SEBlock(nn.Module):
     def __init__(self, in_channels, reduction=4):
         super().__init__()
@@ -184,6 +154,34 @@ class CellWifiFusionModel(nn.Module):
 
 
 
+
+class BasicCnn(nn.Module):
+    def __init__(self, in_channels: int = 1, out_dim: int = 2, dropout_rate: float = 0.3):
+        super().__init__()
+        self.dropout_rate = dropout_rate
+
+        # 用Sequential封装4个卷积块（Conv→BN→ReLU），精简重复代码
+        self.feature_extractor = BasicCnnExtra(in_channels=in_channels, dropout_rate=dropout_rate)
+
+        self.dropout = nn.Dropout(dropout_rate)
+        self.fc = nn.Linear(1, out_dim)  # 占位，后续动态修改
+
+    def _calc_flatten_dim(self, img_h: int, img_w: int) -> int:
+        return 5 * img_h * img_w  # 最后一层卷积输出5通道，特征图尺寸=输入尺寸
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        batch_size, _, img_h, img_w = x.shape
+
+        # 首次前向时，动态初始化全连接层输入维度
+        if self.fc.in_features == 1:
+            flatten_dim = self._calc_flatten_dim(img_h, img_w)
+            self.fc = nn.Linear(flatten_dim, self.fc.out_features).to(x.device)
+
+        # 特征提取 → Flatten → Dropout → 分类
+        x = self.feature_extractor(x)
+        x = x.view(batch_size, -1)  # (batch_size, 5*img_h*img_w)
+        x = self.dropout(x)
+        return self.fc(x)
 
 
 

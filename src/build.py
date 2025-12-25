@@ -518,4 +518,4 @@ def slide_extend_pic(dataset, step: int, slide_step: int):
 
 
 if __name__ == '__main__':
-    run(15, '1764748570471')
+    run(19, '19test')
