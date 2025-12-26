@@ -24,7 +24,7 @@ def run(space_id: int, dataset_id: int, data_path, batch_size=50, epochs=300, re
     # net = mnn.CellWifiFusionModel(cell_in_channels=cell_train_iter.dataset[0][0].shape[0], wifi_in_channels=1, base_feat_channels=5,
     #                             fused_hidden=128, cell_bias_init=1.0)
 
-    net = mnn.CellWifiFusionModel()
+    net = mnn.CellWifiFusionModel(fused_hidden=32)
     loss = nn.MSELoss()
 
     model_name = str(space_id) + '_' + str(dataset_id)

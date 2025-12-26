@@ -77,7 +77,7 @@ def evaluate_result(net, device, data_iter, norm, mode):
         net.eval()  # 将模型设置为评估模式
     metric = Accumulator(2)  # 正确预测数、预测总数
     with torch.no_grad():
-        if mode=='single':
+        if mode == 'single':
             for X, y in data_iter:
                 X, y = X.to(device), y.to(device)
                 distance = count_normal_distance(net(X), y, norm)
@@ -89,7 +89,6 @@ def evaluate_result(net, device, data_iter, norm, mode):
                 y = y.to(device, dtype=torch.float)
                 distance = count_normal_distance(net(cell_X, wifi_X), y, norm)
                 metric.add(distance[0], y.numel() / 2)
-
 
     return metric[0] / metric[1], distance[1], distance[2], distance[3]
 
@@ -184,14 +183,13 @@ def judge_loss_weight(num):
 
 def train(net, train_iter, val_iter, loss, num_epochs, label_norm,
           model_file, record_term=100, mode='single'):
-
     lr = 0.001
     print('current learning rate:' + str(lr))
 
     # 加载历史训练模型
     net = load_model(net, model_file)
     device, net = gpu_parallel(net)
-    trainer = torch.optim.Adam(net.parameters(), lr=lr)
+    trainer = torch.optim.Adam(net.parameters(), lr=lr, weight_decay=0.0001)
     scheduler = torch.optim.lr_scheduler.StepLR(trainer, step_size=100, gamma=0.9)
 
     # 权重系数，放大loss观察值
