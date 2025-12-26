@@ -184,8 +184,8 @@ def judge_loss_weight(num):
 
 def train(net, train_iter, val_iter, loss, num_epochs, label_norm,
           model_file, record_term=100, mode='single'):
-    # 加载上次保存的学习率，若没有则使用默认学习率
-    lr = load_lr()
+
+    lr = 0.001
     print('current learning rate:' + str(lr))
 
     # 加载历史训练模型

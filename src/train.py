@@ -24,7 +24,7 @@ def run(space_id: int, dataset_id: int, data_path, batch_size=50, epochs=300, re
     # net = mnn.CellWifiFusionModel(cell_in_channels=cell_train_iter.dataset[0][0].shape[0], wifi_in_channels=1, base_feat_channels=5,
     #                             fused_hidden=128, cell_bias_init=1.0)
 
-    net = mnn.BasicCnn()
+    net = mnn.CellWifiFusionModel()
     loss = nn.MSELoss()
 
     model_name = str(space_id) + '_' + str(dataset_id)
@@ -33,11 +33,11 @@ def run(space_id: int, dataset_id: int, data_path, batch_size=50, epochs=300, re
     mapper.update_dataset_status(dataset_id, 'doing')
 
     try:
-        # train.train(net, fusion_train_iter, fusion_test_iter, loss, epochs, label_norm,
-        #             model_file, record_term=record_term)
+        train.train(net, fusion_train_iter, fusion_test_iter, loss, epochs, label_norm,
+                    model_file, record_term=record_term, mode='multi')
 
-        train.train(net, wifi_train_iter, wifi_test_iter, loss, epochs, label_norm,
-                    model_file, record_term=record_term, mode='single')
+        # train.train(net, wifi_train_iter, wifi_test_iter, loss, epochs, label_norm,
+        #             model_file, record_term=record_term, mode='single')
     except Exception as e:
         mapper.update_dataset_status(dataset_id, 'fail')
         raise e

@@ -78,7 +78,7 @@ def run(dataset_url, ap_list, model_file):
 
     net = mnn.CellWifiFusionModel(cell_in_channels=cell_set.shape[1], wifi_in_channels=1,
                                   base_feat_channels=5,
-                                  fused_hidden=128, cell_bias_init=1.0)
+                                  fused_hidden=32, cell_bias_init=1.0)
 
     try:
         net = train.load_model(net, model_file, mode='eval')

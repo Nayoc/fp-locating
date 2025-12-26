@@ -86,10 +86,8 @@ class FusionAttentionRegression(nn.Module):
         self.regressor = nn.Sequential(
             nn.Linear(feat_channels, fused_hidden),
             nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(fused_hidden, fused_hidden // 2),
-            nn.ReLU(),
-            nn.Linear(fused_hidden // 2, 2)  # 输出 x,y
+            nn.Dropout(0.5),
+            nn.Linear(fused_hidden, 2)  # 输出 x,y
         )
 
     def forward(self, feat_cell, feat_wifi):
@@ -126,7 +124,7 @@ class FusionAttentionRegression(nn.Module):
 # -------------------------
 class CellWifiFusionModel(nn.Module):
     def __init__(self,
-                 cell_in_channels=3,
+                 cell_in_channels=4,
                  wifi_in_channels=1,
                  base_feat_channels=5,   # 应匹配 BasicCnnExtra 的最终输出通道数 (这里是5)
                  fused_hidden=128,
