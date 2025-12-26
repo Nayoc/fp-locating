@@ -18,13 +18,13 @@ def run(space_id: int, dataset_id: int, data_path, batch_size=50, epochs=300, re
     label_norm = None
 
     file_path = data_dir + data_path
-    cell_train_iter, cell_test_iter, wifi_train_iter, wifi_test_iter, fusion_train_iter, fusion_test_iter = load_data(
+    cell_train_iter, cell_test_iter, wifi_train_iter, wifi_test_iter, fusion_train_iter, fusion_test_iter,shape = load_data(
         file_path, batch_size)
 
     # net = mnn.CellWifiFusionModel(cell_in_channels=cell_train_iter.dataset[0][0].shape[0], wifi_in_channels=1, base_feat_channels=5,
     #                             fused_hidden=128, cell_bias_init=1.0)
 
-    net = mnn.CellWifiFusionModel(fused_hidden=32)
+    net = mnn.CellWifiFusionModel(cell_in_channels=shape[0],fused_hidden=32)
     loss = nn.MSELoss()
 
     model_name = str(space_id) + '_' + str(dataset_id)
@@ -67,7 +67,7 @@ def load_data(path, batch_size=64):
                                        pin_memory=True)
 
     print(fusion['train'][0][0].shape)
-    return cell_train_iter, cell_test_iter, wifi_train_iter, wifi_test_iter, fusion_train_iter, fusion_test_iter
+    return cell_train_iter, cell_test_iter, wifi_train_iter, wifi_test_iter, fusion_train_iter, fusion_test_iter,fusion['train'][0][0].shape
 
 
 if __name__ == '__main__':
