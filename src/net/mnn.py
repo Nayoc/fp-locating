@@ -108,8 +108,10 @@ class FusionAttentionRegression(nn.Module):
 
         logits = torch.stack([logit_cell, logit_wifi], dim=1)  # B x 2
         weights = F.softmax(logits, dim=1)  # B x 2
-        w_cell = weights[:, 0].unsqueeze(-1)  # B x 1
-        w_wifi = weights[:, 1].unsqueeze(-1)
+        # w_cell = weights[:, 0].unsqueeze(-1)  # B x 1
+        # w_wifi = weights[:, 1].unsqueeze(-1)
+        w_cell = 0.5
+        w_wifi = 0.5
 
         # fused vector
         fused = w_cell * v_cell + w_wifi * v_wifi  # B x C
