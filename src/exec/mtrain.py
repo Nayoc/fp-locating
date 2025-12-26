@@ -255,7 +255,7 @@ def train(net, train_iter, val_iter, loss, num_epochs, label_norm,
             # f'epoch:{epoch},loss:{round(train_loss, 6)} | '
             f'epoch:{epoch},loss:{round(train_loss, 6)},train_acc:{round(train_acc, 2)},test_acc:{round(test_acc, 2)} | '
             f'mean_error:{round(train_mean_error, 2)}/{round(test_mean_error, 2)},'
-            f'min_error:{round(train_cdf80_error, 2)}/{round(test_cdf80_error, 2)},')
+            f'cdf80_error:{round(train_cdf80_error, 2)}/{round(test_cdf80_error, 2)},')
 
         # adjust_learning_rate(updater, epoch)
         # 每50 epoch调整batchsize
