@@ -106,8 +106,8 @@ def slide_extend_pic(data, step, slide_step):
 #             continue
 #
 #         rsrp = float(row.get('ap_rsrp', -120))
-#         rsrq = float(row.get('ap_rsrq', -20))
-#         sinr = float(row.get('ap_sinr', -10))
+#         rsrq = float(row.get('ap_rsrq', -30))
+#         sinr = float(row.get('ap_sinr', -20))
 #
 #         if coord_key not in coordinate_groups:
 #             coordinate_groups[coord_key] = {}
@@ -204,8 +204,8 @@ def build_cell_format_dataset_multi_channel(dataset, save_path, step=16):
         coord_key = (rp_x, rp_y)
         ap_id = row.get('ap_id')
         rsrp = float(row.get('ap_rsrp', -120))
-        rsrq = float(row.get('ap_rsrq', -20))
-        sinr = float(row.get('ap_sinr', -10))
+        rsrq = float(row.get('ap_rsrq', -30))
+        sinr = float(row.get('ap_sinr', -20))
 
         if coord_key not in coordinate_groups:
             coordinate_groups[coord_key] = {}
@@ -235,7 +235,7 @@ def build_cell_format_dataset_multi_channel(dataset, save_path, step=16):
         for ap_id in cell_order:
             if ap_id not in ap_dict:
                 # 情况1：无基站数据 → 生成默认信号（[-120,-20,-10]），复制补全到max_signal_len
-                base_default = [[-120.0, -20.0, -10.0]]  # 基础默认信号（列表格式）
+                base_default = [[-120.0, -30.0, -20.0]]  # 基础默认信号（列表格式）
                 if max_signal_len > 1:
                     # 循环复制基础默认信号（列表乘法），截取到max_signal_len
                     repeat_times = (max_signal_len // 1) + 1
@@ -248,7 +248,7 @@ def build_cell_format_dataset_multi_channel(dataset, save_path, step=16):
                 raw_len = len(raw_signal)
                 if raw_len == 0:
                     # 原始信号为空，按无数据处理
-                    base_default = [[-120.0, -20.0, -10.0]]
+                    base_default = [[-120.0, -30.0, -20.0]]
                     completed_signal = (base_default * max_signal_len)[:max_signal_len]
                 elif raw_len < max_signal_len:
                     # 时序长度不足 → 复制自身补全（列表乘法实现循环复制）
@@ -463,14 +463,21 @@ def build_tensor_dataset(cell_data, wifi_data, path=None, test_ratio=0.3, seed=4
             if max_samples > 0:
                 # 填充Cell数据（不足则用0填充）
                 if len(cell_samps) < max_samples:
-                    cell_pad = np.zeros((max_samples - len(cell_samps), m, 16, 3), dtype=np.float32)
-                    cell_full = np.concatenate([cell_samps, cell_pad], axis=0)
+
+                    default_signal = np.array([-120, -30, -20], dtype=np.float32)
+                    if len(cell_samps) == 0:
+                        cell_full = np.full((max_samples, m, 16, 3), default_signal, dtype=np.float32)
+                    else:
+                        pad_samples = max_samples - len(cell_samps)
+                        cell_pad = np.full((pad_samples, m, 16, 3), default_signal, dtype=np.float32)
+                        cell_full = np.concatenate([cell_samps, cell_pad], axis=0)
                 else:
                     cell_full = cell_samps[:max_samples]  # 防止超出（理论上不会）
 
                 # 填充WiFi数据（不足则用0填充）
                 if len(wifi_samps) < max_samples:
-                    wifi_pad = np.zeros((max_samples - len(wifi_samps), 1, 16, 10), dtype=np.float32)
+                    pad_samples = max_samples - len(wifi_samps)
+                    wifi_pad = np.full((pad_samples, 1, 16, 10), -120.0, dtype=np.float32)
                     wifi_full = np.concatenate([wifi_samps, wifi_pad], axis=0)
                 else:
                     wifi_full = wifi_samps[:max_samples]  # 防止超出（理论上不会）

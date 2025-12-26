@@ -51,8 +51,9 @@ def count_normal_distance(y_hat, y, norm, p=False):
 
     distance = cu.calc_normal_distance(y_hat, y)
     accuracy = (distance < error_scale_2).sum().item()
+    cdf80 = torch.quantile(distance, 0.8).item()
 
-    return accuracy, distance.mean(), distance.min(), distance.max()
+    return accuracy, distance.mean().item(), cdf80
 
 
 class Accumulator:
@@ -90,7 +91,7 @@ def evaluate_result(net, device, data_iter, norm, mode):
                 distance = count_normal_distance(net(cell_X, wifi_X), y, norm)
                 metric.add(distance[0], y.numel() / 2)
 
-    return metric[0] / metric[1], distance[1], distance[2], distance[3]
+    return metric[0] / metric[1], distance[1], distance[2]
 
 
 def calculate(net, device, data, model=0):
@@ -162,7 +163,7 @@ def train_epoch(net, device, train_iter, loss, updater, scheduler, label_norm, m
             # y.numel()/2是因为最后距离是是坐标聚合出来的，所以总数只有一半
             metric.add(float(l.sum()), distance[0], y.numel() / 2)
     # 返回训练损失和训练精度
-    return metric[0] / metric[2], metric[1] / metric[2], distance[1], distance[2], distance[3]
+    return metric[0] / metric[2], metric[1] / metric[2], distance[1], distance[2]
 
 
 def judge_loss_weight(num):
@@ -197,7 +198,7 @@ def train(net, train_iter, val_iter, loss, num_epochs, label_norm,
     term_loss_weight = 1
 
     # 预训练一次，确定损失数量级
-    train_loss, train_acc, mean_error, min_error, max_error = train_epoch(net, device, train_iter, loss, trainer,
+    train_loss, train_acc, mean_error, cdf80_error = train_epoch(net, device, train_iter, loss, trainer,
                                                                           scheduler,
                                                                           label_norm, mode)
 
@@ -215,11 +216,11 @@ def train(net, train_iter, val_iter, loss, num_epochs, label_norm,
     """训练模型"""
     for epoch in range(num_epochs):
 
-        train_loss, train_acc, train_mean_error, train_min_error, train_max_error = train_epoch(net, device, train_iter,
+        train_loss, train_acc, train_mean_error, train_cdf80_error = train_epoch(net, device, train_iter,
                                                                                                 loss,
                                                                                                 trainer, scheduler,
                                                                                                 label_norm, mode)
-        test_acc, test_mean_error, test_min_error, test_max_error = evaluate_result(net, device, val_iter, label_norm,
+        test_acc, test_mean_error, test_cdf80_error = evaluate_result(net, device, val_iter, label_norm,
                                                                                     mode)
 
         if epoch == 0:
@@ -251,10 +252,10 @@ def train(net, train_iter, val_iter, loss, num_epochs, label_norm,
         animator_term.update(epoch % record_term + 1, (term_weight_train_loss, train_acc) + (test_acc,))
         torch.set_printoptions(sci_mode=False, precision=8)
         print(
-            f'epoch:{epoch},loss:{round(train_loss, 8)},train_acc:{round(train_acc, 5)},test_acc:{round(test_acc, 5)} | '
-            f'mean_error:{round(train_mean_error.item(), 5)}/{round(test_mean_error.item(), 5)},'
-            f'min_error:{round(train_min_error.item(), 5)}/{round(test_min_error.item(), 5)},'
-            f'max_error:{round(train_max_error.item(), 5)}/{round(test_max_error.item(), 5)}')
+            # f'epoch:{epoch},loss:{round(train_loss, 6)} | '
+            f'epoch:{epoch},loss:{round(train_loss, 6)},train_acc:{round(train_acc, 2)},test_acc:{round(test_acc, 2)} | '
+            f'mean_error:{round(train_mean_error, 2)}/{round(test_mean_error, 2)},'
+            f'min_error:{round(train_cdf80_error, 2)}/{round(test_cdf80_error, 2)},')
 
         # adjust_learning_rate(updater, epoch)
         # 每50 epoch调整batchsize
