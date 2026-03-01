@@ -71,4 +71,4 @@ def load_data(path, batch_size=64):
 
 
 if __name__ == '__main__':
-    run(19, 10015, '/19/collection_19test', batch_size=32)
+    run(15, 10016, '/15/collection_15test_01', batch_size=32)

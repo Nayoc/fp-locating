@@ -76,6 +76,7 @@ class MySQLConnector:
                 return None
 
         try:
+            self.cursor.execute("SET SESSION group_concat_max_len = 2000;")
             self.cursor.execute(sql, params or ())
             return self.cursor.fetchall()
         except Error as e:

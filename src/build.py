@@ -174,7 +174,7 @@ def slide_extend_pic(data, step, slide_step):
 #     return final_coord_data
 
 # 填充默认值
-def build_cell_format_dataset_multi_channel(dataset, save_path, step=16):
+def build_cell_format_dataset_multi_channel(dataset, save_path, step=10):
     cell_order_file = os.path.join(save_path, 'cell_order.txt')
     text_tool = TxtArrayTool()
     cell_order = []
@@ -289,7 +289,7 @@ def build_cell_format_dataset_multi_channel(dataset, save_path, step=16):
 
     return final_coord_data
 
-def build_wifi_format_dataset(dataset, path, step=16, max_ap=10):
+def build_wifi_format_dataset(dataset, path, step=10, max_ap=10):
     # 1.固定wifi顺序
     text_tool = TxtArrayTool()
     header = text_tool.read(path + '/wifi_order.txt')
@@ -466,10 +466,10 @@ def build_tensor_dataset(cell_data, wifi_data, path=None, test_ratio=0.3, seed=4
 
                     default_signal = np.array([-120, -30, -20], dtype=np.float32)
                     if len(cell_samps) == 0:
-                        cell_full = np.full((max_samples, m, 16, 3), default_signal, dtype=np.float32)
+                        cell_full = np.full((max_samples, m, 10, 3), default_signal, dtype=np.float32)
                     else:
                         pad_samples = max_samples - len(cell_samps)
-                        cell_pad = np.full((pad_samples, m, 16, 3), default_signal, dtype=np.float32)
+                        cell_pad = np.full((pad_samples, m, 10, 3), default_signal, dtype=np.float32)
                         cell_full = np.concatenate([cell_samps, cell_pad], axis=0)
                 else:
                     cell_full = cell_samps[:max_samples]  # 防止超出（理论上不会）
@@ -477,7 +477,7 @@ def build_tensor_dataset(cell_data, wifi_data, path=None, test_ratio=0.3, seed=4
                 # 填充WiFi数据（不足则用0填充）
                 if len(wifi_samps) < max_samples:
                     pad_samples = max_samples - len(wifi_samps)
-                    wifi_pad = np.full((pad_samples, 1, 16, 10), -120.0, dtype=np.float32)
+                    wifi_pad = np.full((pad_samples, 1, 10, 10), -120.0, dtype=np.float32)
                     wifi_full = np.concatenate([wifi_samps, wifi_pad], axis=0)
                 else:
                     wifi_full = wifi_samps[:max_samples]  # 防止超出（理论上不会）
@@ -525,4 +525,4 @@ def slide_extend_pic(dataset, step: int, slide_step: int):
 
 
 if __name__ == '__main__':
-    run(19, '19test')
+    run(15, '15test_01')
