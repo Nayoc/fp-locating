@@ -1,239 +1,528 @@
-import numpy as np
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-from torch.nn import functional as F
+import random
+import time
+from util.mysql_utils import MySQLConnector
 
-# ===================== 1. 自定义注意力融合层（核心：含可学习权重的全连接层） =====================
-class BaseWiFiAttentionFusion(nn.Module):
-    def __init__(self):
-        super(BaseWiFiAttentionFusion, self).__init__()
-        self.weight_linear = nn.Linear(48, 2)  # 可学习参数：weight(2×48) + bias(2×1)
-        self.sigmoid = nn.Sigmoid()  # 激活函数：将输出限制在0~1，符合权重范围
-        # WiFi升维层（16通道→32通道，与基站通道一致）
-        self.wifi_upconv = nn.Conv1d(in_channels=16, out_channels=32, kernel_size=1, padding='same')
+wifi_str = """
+9a:4a:6b:57:18:fe,
+9a:4a:6b:93:0b:7a,
+de:a7:82:43:5e:00,
+c2:a4:76:98:1b:2c,
+9a:4a:6b:82:be:82,
+9a:4a:6b:97:18:fe,
+9a:4a:6b:17:18:fe,
+9a:4a:6b:92:be:82,
+c2:a4:76:88:1b:2c,
+9a:4a:6b:83:0b:7a,
+"""
 
-    def forward(self, base_feat, wifi_feat):
-        """
-        前向传播：注意力加权融合
-        :param base_feat: 基站分支特征，shape=(batch, 32, 16) （batch×通道数×时序窗口）
-        :param wifi_feat: WiFi分支特征，shape=(batch, 16, 16)
-        :return: 融合后特征，shape=(batch, 32, 16)
-        """
-        # 步骤1：全局平均池化（GAP）→ 压缩时序维度（16→1），提取全局特征（PyTorch实现）
-        # dim=2：对时序维度（第3维）求平均，保留batch和通道维度
-        base_gap = torch.mean(base_feat, dim=2)  # (batch, 32, 16) → (batch, 32)
-        wifi_gap = torch.mean(wifi_feat, dim=2)  # (batch, 16, 16) → (batch, 16)
+max_num = 100
 
-        # 步骤2：拼接全局特征，通过可学习全连接层编码权重候选值（机器学习核心步骤）
-        concat_gap = torch.cat([base_gap, wifi_gap], dim=1)  # (batch, 32+16) = (batch, 48)
-        init_weights = self.weight_linear(concat_gap)  # (batch, 48) → (batch, 2)：随机初始化→逐步学习
-        init_weights = self.sigmoid(init_weights)  # 激活后：(batch, 2) ∈ [0,1]
+demo_fill_map = {
+    "11_10.25": {
+        "cell": [
+            {
+                "ap_id": '268',
+                "target_rsrp": -80,
+                "target_rsrq": -11,
+                "target_sinr": 11,
+                "request_batch_id": [1, 2, 3]
+            },
+            {
+                "ap_id": '17',
+                "target_rsrp": -100,
+                "target_rsrq": -11,
+                "target_sinr": 11,
+                "request_batch_id": [2, 3, 4]
+            },
+        ],
+        "wifi": [
+            {
+                "ap_id": 'w1',
+                "ap_name": 'w1n',
+                "target_rssi": -80,
+                "request_batch_id": [1, 2, 3, 5, 7]
+            },
+            {
+                "ap_id": 'w2',
+                "ap_name": 'w2n',
+                "target_rssi": -80,
+                "request_batch_id": [1, 2, 3, 5, 6, 7, 8]
+            },
+        ],
+    }
+}
 
-        # 步骤3：提取权重，强制基站权重≥0.6（主辅规则约束）
-        base_w = init_weights[:, 0:1]  # (batch, 1)：基站初始权重
-        wifi_w = init_weights[:, 1:2]  # (batch, 1)：WiFi初始权重
-        # 基站权重放大后裁剪：确保≥0.6，≤1.0
-        base_w = torch.clamp(base_w * 1.2, min=0.6, max=1.0)
-        # WiFi权重=1-基站权重：自动≤0.4
-        wifi_w = 1 - base_w
+collections_batch_id = 1772167533230
 
-        # 步骤4：权重广播（PyTorch实现：扩展维度适配特征图）
-        # 基站权重：(batch,1) → (batch, 32, 16)：每个通道×每个时序窗口都用同一个基站权重
-        base_w_broadcast = base_w.unsqueeze(1).unsqueeze(2).expand_as(base_feat)
-        # WiFi权重：(batch,1) → (batch, 16, 16)：适配WiFi分支特征维度
-        wifi_w_broadcast = wifi_w.unsqueeze(1).unsqueeze(2).expand_as(wifi_feat)
+def build_fill_map():
+    # 初始化最终的fill_map结构
+    fill_map = {}
 
-        # 步骤5：WiFi特征升维，与基站特征维度一致
-        wifi_feat_up = self.wifi_upconv(wifi_feat)  # (batch,16,16) → (batch,32,16)
+    with MySQLConnector() as db:
+        if db.connection.is_connected():
+            # 1. 执行Cell和WiFi的分组查询
+            cell_group_sql = """
+                select rp_x,rp_y,ap_id,
+                       round(avg(ap_rsrp)) target_rsrp,
+                       round(avg(ap_rsrq)) target_rsrq,
+                       round(avg(ap_sinr)) target_sinr,
+                       group_concat(request_batch_id) as request_batch 
+                from single_collection_data 
+                where source='cell' and space_id=15 
+                group by rp_x,rp_y,ap_id 
+                order by ap_id asc,rp_x desc,rp_y desc
+            """  # 注：原SQL的group by多了ap_name，cell的source下可能无ap_name，已修正
+            wifi_group_sql = """
+                select rp_x,rp_y,ap_id,ap_name,
+                       round(avg(ap_rssi)) target_rssi,
+                       group_concat(request_batch_id) as request_batch 
+                from single_collection_data 
+                where source='wifi' and space_id=15 
+                  and ap_id in ('9a:4a:6b:57:18:fe','9a:4a:6b:93:0b:7a','de:a7:82:43:5e:00','c2:a4:76:98:1b:2c','9a:4a:6b:82:be:82','9a:4a:6b:97:18:fe','9a:4a:6b:17:18:fe','9a:4a:6b:92:be:82','c2:a4:76:88:1b:2c','9a:4a:6b:83:0b:7a') 
+                group by rp_x,rp_y,ap_id,ap_name 
+                order by ap_name asc,rp_x desc,rp_y desc
+            """
+            cell_results = db.execute_query(cell_group_sql)
+            wifi_results = db.execute_query(wifi_group_sql)
 
-        # 步骤6：加权融合（逐元素相乘+求和）
-        fused_feat = base_feat * base_w_broadcast + wifi_feat_up * wifi_w_broadcast
+            # 2. 处理Cell查询结果，填充到fill_map
+            for row in cell_results:
+                # 提取基础字段（处理NULL值，避免报错）
+                rp_x = row.get('rp_x', '') or ''
+                rp_y = row.get('rp_y', '') or ''
+                ap_id = row.get('ap_id', '') or ''
+                target_rsrp = row.get('target_rsrp', 0) or 0
+                target_rsrq = row.get('target_rsrq', 0) or 0
+                target_sinr = row.get('target_sinr', 0) or 0
+                request_batch_str = row.get('request_batch', '') or ''
 
-        # 可选：记录权重（训练时查看）
-        self.base_weight = torch.mean(base_w).item()
-        self.wifi_weight = torch.mean(wifi_w).item()
+                # 拼接坐标键（和之前的fill_map格式一致：rp_x_rp_y）
+                coord_key = f"{rp_x}_{rp_y}"
 
-        return fused_feat
+                # 转换request_batch：字符串转整数列表（处理空值/分隔符）
+                request_batch_id = []
+                if request_batch_str.strip():
+                    request_batch_id = [int(batch.strip()) for batch in request_batch_str.split(',') if batch.strip()]
 
-# ===================== 2. 完整融合模型（基站主分支+WiFi辅分支+注意力融合） =====================
-class BaseWiFiFusionModel(nn.Module):
-    def __init__(self, n_reference_points=41):
-        super(BaseWiFiFusionModel, self).__init__()
-        self.n_reference = n_reference_points
+                # 初始化coord_key对应的结构（避免KeyError）
+                if coord_key not in fill_map:
+                    fill_map[coord_key] = {
+                        "cell": [],
+                        "wifi": []
+                    }
 
-        # ---------------------- 基站主分支（提取稳定特征） ----------------------
-        self.base_branch = nn.Sequential(
-            # Conv1d：in_channels=3（基站3种信号），out_channels=32（特征通道），kernel_size=3
-            nn.Conv1d(in_channels=3, out_channels=32, kernel_size=3, padding='same'),
-            nn.BatchNorm1d(num_features=32),  # 1D BatchNorm：num_features=卷积输出通道数
-            nn.ReLU(inplace=True)  # 激活函数：增强非线性，无池化（保留时序维度）
-        )
+                # 填充Cell AP数据到对应坐标
+                fill_map[coord_key]['cell'].append({
+                    "ap_id": ap_id,
+                    "target_rsrp": target_rsrp,
+                    "target_rsrq": target_rsrq,
+                    "target_sinr": target_sinr,
+                    "request_batch_id": request_batch_id
+                })
 
-        # ---------------------- WiFi辅分支（提取补充特征） ----------------------
-        self.wifi_branch = nn.Sequential(
-            # Conv1d：in_channels=20（WiFi 20个AP/特征），out_channels=16（轻量化设计）
-            nn.Conv1d(in_channels=20, out_channels=16, kernel_size=3, padding='same'),
-            nn.BatchNorm1d(num_features=16),
-            nn.ReLU(inplace=True)
-        )
+            # 3. 处理WiFi查询结果，填充到fill_map
+            for row in wifi_results:
+                # 提取基础字段（处理NULL值）
+                rp_x = row.get('rp_x', '') or ''
+                rp_y = row.get('rp_y', '') or ''
+                ap_id = row.get('ap_id', '') or ''
+                ap_name = row.get('ap_name', '') or ''
+                target_rssi = row.get('target_rssi', 0) or 0
+                request_batch_str = row.get('request_batch', '') or ''
 
-        # ---------------------- 注意力融合层 ----------------------
-        self.attention_fusion = BaseWiFiAttentionFusion()
+                # 拼接坐标键
+                coord_key = f"{rp_x}_{rp_y}"
 
-        # ---------------------- 全局特征整合+分类输出 ----------------------
-        self.classifier = nn.Sequential(
-            # 全局平均池化：压缩时序维度（16→1），输出(batch,32)
-            nn.AdaptiveAvgPool1d(1),  # 等价于torch.mean(dim=2)，更灵活
-            nn.Flatten(),  # 展平：(batch,32,1) → (batch,32)
-            nn.Linear(32, 64),  # 全连接层：特征编码
-            nn.ReLU(inplace=True),
-            nn.Dropout(p=0.2),  # 防过拟合（小数据集必备）
-            nn.Linear(64, self.n_reference)  # 输出层：对应参考点数量
-        )
+                # 转换request_batch为整数列表
+                request_batch_id = []
+                if request_batch_str.strip():
+                    request_batch_id = [int(batch.strip()) for batch in request_batch_str.split(',') if batch.strip()]
 
-    def forward(self, base_input, wifi_input):
-        """
-        前向传播：双输入→双分支→融合→分类
-        :param base_input: 基站输入，shape=(batch, 3, 16)
-        :param wifi_input: WiFi输入，shape=(batch, 20, 16)
-        :return: 参考点分类logits（未经过softmax，PyTorch损失函数会自动处理）
-        """
-        # 1. 分支特征提取
-        base_feat = self.base_branch(base_input)  # (batch,3,16) → (batch,32,16)
-        wifi_feat = self.wifi_branch(wifi_input)  # (batch,20,16) → (batch,16,16)
+                # 初始化coord_key对应的结构
+                if coord_key not in fill_map:
+                    fill_map[coord_key] = {
+                        "cell": [],
+                        "wifi": []
+                    }
 
-        # 2. 注意力融合
-        fused_feat = self.attention_fusion(base_feat, wifi_feat)  # (batch,32,16)
+                # 填充WiFi AP数据到对应坐标
+                fill_map[coord_key]['wifi'].append({
+                    "ap_id": ap_id,
+                    "ap_name": ap_name,
+                    "target_rssi": target_rssi,
+                    "request_batch_id": request_batch_id
+                })
 
-        # 3. 分类输出
-        logits = self.classifier(fused_feat)  # (batch, n_reference)
+    # 返回最终构建的fill_map
+    return fill_map
 
-        return logits
 
-# ===================== 3. 数据集类（适配PyTorch DataLoader） =====================
-class FusionDataset(Dataset):
-    def __init__(self, base_data, wifi_data, labels):
-        """
-        :param base_data: 基站数据，shape=(n_samples, 3, 16)
-        :param wifi_data: WiFi数据，shape=(n_samples, 20, 16)
-        :param labels: 参考点ID标签，shape=(n_samples,)
-        """
-        self.base_data = torch.tensor(base_data, dtype=torch.float32)
-        self.wifi_data = torch.tensor(wifi_data, dtype=torch.float32)
-        self.labels = torch.tensor(labels, dtype=torch.float32)  # 分类任务标签用long类型
+def build_cell_sql(fill_map: dict):
+    # 修正WiFi的source字段（原错误写为'cell'）
+    CELL_SQL_INSERT = "insert into single_collection_data (space_id, collection_batch_id, request_batch_id, ap_id, ap_rsrp, ap_rsrq, ap_sinr, rp_x, rp_y, source,type) values\n"
+    CELL_SQL_VALUE = "(15,1772167533230,{request_batch_id},'{ap_id}',{ap_rsrp},{ap_rsrq},{ap_sinr},{rp_x},{rp_y},'cell',2),\n"
 
-    def __len__(self):
-        return len(self.labels)
+    WIFI_SQL_INSERT = "insert into single_collection_data (space_id, collection_batch_id, request_batch_id, ap_id,ap_name, ap_rssi, rp_x, rp_y, source,type) values\n"
+    WIFI_SQL_VALUE = "(15,1772167533230,{request_batch_id},'{ap_id}','{ap_name}',{ap_rssi},{rp_x},{rp_y},'wifi',2),\n"
 
-    def __getitem__(self, idx):
-        return self.base_data[idx], self.wifi_data[idx], self.labels[idx]
+    sql_output_file = f"fill_all_sql_{int(time.time() * 1000)}.sql"
+    # 初始化文件（清空原有内容，保证每次运行重新生成）
+    with open(sql_output_file, 'w', encoding='utf-8') as f:
+        f.write(f"-- 信号补全SQL文件，生成时间：{time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"-- 空间ID：15，采集批次ID：{collections_batch_id}\n\n")
 
-# ===================== 4. 训练与预测示例 =====================
+    for coord, apx in fill_map.items():
+        coord_array = coord.split('_')
+        coord_x = coord_array[0]
+        coord_y = coord_array[1]
+
+        cell_aps = apx['cell']
+        wifi_aps = apx['wifi']
+
+        # 计算坐标点公共批次并集
+        cell_batch_ids = set([batch_id for ap in cell_aps for batch_id in ap['request_batch_id']])
+        wifi_batch_ids = set([batch_id for ap in wifi_aps for batch_id in ap['request_batch_id']])
+        global_batch_ids = cell_batch_ids | wifi_batch_ids
+        global_batch_sorted = sorted(global_batch_ids)
+        global_batch_len = len(global_batch_ids)
+
+        # 生成坐标点级别的统一新批次列表（所有AP共用）
+        new_batch_count = max(0, max_num - global_batch_len)
+        new_batch_list = []
+        if new_batch_count > 0:
+            base_timestamp = int(time.time() * 1000)
+            # 一行式生成随机8~12秒间隔的新批次
+            new_batch_list = [base_timestamp + sum(random.randint(8000, 12000) for _ in range(i)) for i in
+                              range(new_batch_count)]
+
+        # ===================== 核心修正：移出缩进，保证始终处理Cell/WiFi =====================
+        # ===================== 处理Cell AP：每个AP独立补全至max_num =====================
+        cell_final_sql = ""
+        for ap in cell_aps:
+            ap_id = ap['ap_id']
+            base_rsrp = ap['target_rsrp']
+            base_rsrq = ap['target_rsrq']
+            base_sinr = ap['target_sinr']
+            own_batch = set(ap['request_batch_id'])
+
+            ap_cell_sql = CELL_SQL_INSERT
+            record_count = 0
+
+            # 步骤1：补公共批次中自身缺失的部分
+            fill_batch = sorted(global_batch_ids - own_batch)
+            for bid in fill_batch:
+                if record_count >= max_num:
+                    break
+                # 随机波动
+                rsrp_offset = random.choice([-3, -2, -2, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 3])
+                rsrq_offset = random.choice([-1, 0, 0, 0, 1])
+                sinr_offset = random.choice([-1, 0, 0, 0, 1])
+                target_rsrp = base_rsrp + rsrp_offset
+                target_rsrq = base_rsrq + rsrq_offset
+                target_sinr = base_sinr + sinr_offset
+
+                ap_cell_sql += CELL_SQL_VALUE.format(
+                    collection_batch_id=collections_batch_id,
+                    request_batch_id=bid,
+                    ap_id=ap_id,
+                    ap_rsrp=target_rsrp,
+                    ap_rsrq=target_rsrq,
+                    ap_sinr=target_sinr,
+                    rp_x=coord_x,
+                    rp_y=coord_y
+                )
+                record_count += 1
+
+            # 步骤2：补新批次（即使new_batch_count=0，也不影响循环逻辑）
+            if record_count < max_num and new_batch_count > 0:
+                need_new = max_num - record_count
+                use_new_batches = new_batch_list[:need_new]
+                for new_bid in use_new_batches:
+                    rsrp_offset = random.choice([-3, -2, -2, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 3])
+                    rsrq_offset = random.choice([-1, 0, 0, 0, 1])
+                    sinr_offset = random.choice([-1, 0, 0, 0, 1])
+                    target_rsrp = base_rsrp + rsrp_offset
+                    target_rsrq = base_rsrq + rsrq_offset
+                    target_sinr = base_sinr + sinr_offset
+
+                    ap_cell_sql += CELL_SQL_VALUE.format(
+                        collection_batch_id=collections_batch_id,
+                        request_batch_id=new_bid,
+                        ap_id=ap_id,
+                        ap_rsrp=target_rsrp,
+                        ap_rsrq=target_rsrq,
+                        ap_sinr=target_sinr,
+                        rp_x=coord_x,
+                        rp_y=coord_y
+                    )
+                    record_count += 1
+
+            # 处理SQL结尾
+            ap_cell_sql = ap_cell_sql.rstrip(',\n') + ';'
+
+            # ========== 关键修改1：判断是否为空SQL语句 ==========
+            # 检查是否只有insert开头+values;，没有实际数据
+            if ap_cell_sql.strip() == CELL_SQL_INSERT.rstrip('\n') + ';':
+                continue  # 跳过空SQL
+            cell_final_sql += ap_cell_sql + "\n\n"
+
+        # ===================== 处理WiFi AP：每个AP独立补全至max_num =====================
+        wifi_final_sql = ""
+        for ap in wifi_aps:
+            ap_id = ap['ap_id']
+            ap_name = ap['ap_name']
+            base_rssi = ap['target_rssi']
+            own_batch = set(ap['request_batch_id'])
+
+            ap_wifi_sql = WIFI_SQL_INSERT
+            record_count = 0
+
+            # 步骤1：补公共批次中自身缺失的部分
+            fill_batch = sorted(global_batch_ids - own_batch)
+            for bid in fill_batch:
+                if record_count >= max_num:
+                    break
+                rssi_offset = random.choice([-3, -2, -2, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 3])
+                target_rssi = base_rssi + rssi_offset
+
+                ap_wifi_sql += WIFI_SQL_VALUE.format(
+                    collection_batch_id=collections_batch_id,
+                    request_batch_id=bid,
+                    ap_id=ap_id,
+                    ap_name=ap_name,
+                    ap_rssi=target_rssi,
+                    rp_x=coord_x,
+                    rp_y=coord_y
+                )
+                record_count += 1
+
+            # 步骤2：补新批次
+            if record_count < max_num and new_batch_count > 0:
+                need_new = max_num - record_count
+                use_new_batches = new_batch_list[:need_new]
+                for new_bid in use_new_batches:
+                    rssi_offset = random.choice([-3, -2, -2, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 3])
+                    target_rssi = base_rssi + rssi_offset
+
+                    ap_wifi_sql += WIFI_SQL_VALUE.format(
+                        collection_batch_id=collections_batch_id,
+                        request_batch_id=new_bid,
+                        ap_id=ap_id,
+                        ap_name=ap_name,
+                        ap_rssi=target_rssi,
+                        rp_x=coord_x,
+                        rp_y=coord_y
+                    )
+                    record_count += 1
+
+            # 处理SQL结尾
+            ap_wifi_sql = ap_wifi_sql.rstrip(',\n') + ';'
+
+            # ========== 关键修改2：判断是否为空SQL语句 ==========
+            if ap_wifi_sql.strip() == WIFI_SQL_INSERT.rstrip('\n') + ';':
+                continue  # 跳过空SQL
+            wifi_final_sql += ap_wifi_sql + "\n\n"
+
+        # ===================== 控制台打印 + 写入文件 =====================
+        coord_output = f"-- 坐标：({coord_x}, {coord_y})\n"
+        # ========== 关键修改3：只有当有有效SQL时才添加对应内容 ==========
+        if cell_final_sql:
+            coord_output += f"-- Cell AP SQL\n{cell_final_sql}\n\n"
+        if wifi_final_sql:
+            coord_output += f"-- WiFi AP SQL\n{wifi_final_sql}\n\n"
+
+        # 控制台打印（仅打印有内容的部分）
+        if cell_final_sql:
+            print(f"-- 坐标 ({coord_x},{coord_y}) Cell AP SQL")
+            print(cell_final_sql)
+        if wifi_final_sql:
+            print(f"-- 坐标 ({coord_x},{coord_y}) WiFi AP SQL")
+            print(wifi_final_sql)
+        if cell_final_sql or wifi_final_sql:
+            print("-" * 80 + "\n")
+
+        # 追加写入文件（仅写入有内容的部分）
+        if cell_final_sql or wifi_final_sql:
+            with open(sql_output_file, 'a', encoding='utf-8') as f:
+                f.write(coord_output)
+
+
+# def build_cell_sql(fill_map: dict):
+#     # 修正WiFi的source字段（原错误写为'cell'）
+#     CELL_SQL_INSERT = "insert into single_collection_data (space_id, collection_batch_id, request_batch_id, ap_id, ap_rsrp, ap_rsrq, ap_sinr, rp_x, rp_y, source,type) values\n"
+#     CELL_SQL_VALUE = "(15,1772167533230,{request_batch_id},'{ap_id}',{ap_rsrp},{ap_rsrq},{ap_sinr},{rp_x},{rp_y},'cell',2),\n"
+#
+#     WIFI_SQL_INSERT = "insert into single_collection_data (space_id, collection_batch_id, request_batch_id, ap_id,ap_name, ap_rssi, rp_x, rp_y, source,type) values\n"
+#     WIFI_SQL_VALUE = "(15,1772167533230,{request_batch_id},'{ap_id}','{ap_name}',{ap_rssi},{rp_x},{rp_y},'wifi',2),\n"
+#
+#     sql_output_file = f"fill_all_sql_{int(time.time() * 1000)}.sql"
+#     # 初始化文件（清空原有内容，保证每次运行重新生成）
+#     with open(sql_output_file, 'w', encoding='utf-8') as f:
+#         f.write(f"-- 信号补全SQL文件，生成时间：{time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+#         f.write(f"-- 空间ID：15，采集批次ID：{collections_batch_id}\n\n")
+#
+#     for coord, apx in fill_map.items():
+#         coord_array = coord.split('_')
+#         coord_x = coord_array[0]
+#         coord_y = coord_array[1]
+#
+#         cell_aps = apx['cell']
+#         wifi_aps = apx['wifi']
+#
+#         # 计算坐标点公共批次并集
+#         cell_batch_ids = set([batch_id for ap in cell_aps for batch_id in ap['request_batch_id']])
+#         wifi_batch_ids = set([batch_id for ap in wifi_aps for batch_id in ap['request_batch_id']])
+#         global_batch_ids = cell_batch_ids | wifi_batch_ids
+#         global_batch_sorted = sorted(global_batch_ids)
+#         global_batch_len = len(global_batch_ids)
+#
+#         # 生成坐标点级别的统一新批次列表（所有AP共用）
+#         new_batch_count = max(0, max_num - global_batch_len)
+#         new_batch_list = []
+#         if new_batch_count > 0:
+#             base_timestamp = int(time.time() * 1000)
+#             # 一行式生成随机8~12秒间隔的新批次
+#             new_batch_list = [base_timestamp + sum(random.randint(8000, 12000) for _ in range(i)) for i in range(new_batch_count)]
+#
+#         # ===================== 核心修正：移出缩进，保证始终处理Cell/WiFi =====================
+#         # ===================== 处理Cell AP：每个AP独立补全至max_num =====================
+#         cell_final_sql = ""
+#         for ap in cell_aps:
+#             ap_id = ap['ap_id']
+#             base_rsrp = ap['target_rsrp']
+#             base_rsrq = ap['target_rsrq']
+#             base_sinr = ap['target_sinr']
+#             own_batch = set(ap['request_batch_id'])
+#
+#             ap_cell_sql = CELL_SQL_INSERT
+#             record_count = 0
+#
+#             # 步骤1：补公共批次中自身缺失的部分
+#             fill_batch = sorted(global_batch_ids - own_batch)
+#             for bid in fill_batch:
+#                 if record_count >= max_num:
+#                     break
+#                 # 随机波动
+#                 rsrp_offset = random.choice([-3, -2, -2, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 3])
+#                 rsrq_offset = random.choice([-1, 0, 0, 0, 1])
+#                 sinr_offset = random.choice([-1, 0, 0, 0, 1])
+#                 target_rsrp = base_rsrp + rsrp_offset
+#                 target_rsrq = base_rsrq + rsrq_offset
+#                 target_sinr = base_sinr + sinr_offset
+#
+#                 ap_cell_sql += CELL_SQL_VALUE.format(
+#                     collection_batch_id=collections_batch_id,
+#                     request_batch_id=bid,
+#                     ap_id=ap_id,
+#                     ap_rsrp=target_rsrp,
+#                     ap_rsrq=target_rsrq,
+#                     ap_sinr=target_sinr,
+#                     rp_x=coord_x,
+#                     rp_y=coord_y
+#                 )
+#                 record_count += 1
+#
+#             # 步骤2：补新批次（即使new_batch_count=0，也不影响循环逻辑）
+#             if record_count < max_num and new_batch_count > 0:
+#                 need_new = max_num - record_count
+#                 use_new_batches = new_batch_list[:need_new]
+#                 for new_bid in use_new_batches:
+#                     rsrp_offset = random.choice([-3, -2, -2, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 3])
+#                     rsrq_offset = random.choice([-1, 0, 0, 0, 1])
+#                     sinr_offset = random.choice([-1, 0, 0, 0, 1])
+#                     target_rsrp = base_rsrp + rsrp_offset
+#                     target_rsrq = base_rsrq + rsrq_offset
+#                     target_sinr = base_sinr + sinr_offset
+#
+#                     ap_cell_sql += CELL_SQL_VALUE.format(
+#                         collection_batch_id=collections_batch_id,
+#                         request_batch_id=new_bid,
+#                         ap_id=ap_id,
+#                         ap_rsrp=target_rsrp,
+#                         ap_rsrq=target_rsrq,
+#                         ap_sinr=target_sinr,
+#                         rp_x=coord_x,
+#                         rp_y=coord_y
+#                     )
+#                     record_count += 1
+#
+#             # 处理SQL结尾
+#             ap_cell_sql = ap_cell_sql.rstrip(',\n') + ';'
+#             cell_final_sql += ap_cell_sql + "\n\n"
+#
+#         # ===================== 处理WiFi AP：每个AP独立补全至max_num =====================
+#         wifi_final_sql = ""
+#         for ap in wifi_aps:
+#             ap_id = ap['ap_id']
+#             ap_name = ap['ap_name']
+#             base_rssi = ap['target_rssi']
+#             own_batch = set(ap['request_batch_id'])
+#
+#             ap_wifi_sql = WIFI_SQL_INSERT
+#             record_count = 0
+#
+#             # 步骤1：补公共批次中自身缺失的部分
+#             fill_batch = sorted(global_batch_ids - own_batch)
+#             for bid in fill_batch:
+#                 if record_count >= max_num:
+#                     break
+#                 rssi_offset = random.choice([-3, -2, -2, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 3])
+#                 target_rssi = base_rssi + rssi_offset
+#
+#                 ap_wifi_sql += WIFI_SQL_VALUE.format(
+#                     collection_batch_id=collections_batch_id,
+#                     request_batch_id=bid,
+#                     ap_id=ap_id,
+#                     ap_name=ap_name,
+#                     ap_rssi=target_rssi,
+#                     rp_x=coord_x,
+#                     rp_y=coord_y
+#                 )
+#                 record_count += 1
+#
+#             # 步骤2：补新批次
+#             if record_count < max_num and new_batch_count > 0:
+#                 need_new = max_num - record_count
+#                 use_new_batches = new_batch_list[:need_new]
+#                 for new_bid in use_new_batches:
+#                     rssi_offset = random.choice([-3, -2, -2, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 3])
+#                     target_rssi = base_rssi + rssi_offset
+#
+#                     ap_wifi_sql += WIFI_SQL_VALUE.format(
+#                         collection_batch_id=collections_batch_id,
+#                         request_batch_id=new_bid,
+#                         ap_id=ap_id,
+#                         ap_name=ap_name,
+#                         ap_rssi=target_rssi,
+#                         rp_x=coord_x,
+#                         rp_y=coord_y
+#                     )
+#                     record_count += 1
+#
+#             # 处理SQL结尾
+#             ap_wifi_sql = ap_wifi_sql.rstrip(',\n') + ';'
+#             wifi_final_sql += ap_wifi_sql + "\n\n"
+#
+#
+#         # ===================== 控制台打印 + 写入文件 =====================
+#         coord_output = f"-- 坐标：({coord_x}, {coord_y})\n"
+#         coord_output += f"-- Cell AP SQL\n{cell_final_sql}\n\n"
+#         coord_output += f"-- WiFi AP SQL\n{wifi_final_sql}\n\n"
+#
+#         # 控制台打印
+#         print(f"-- 坐标 ({coord_x},{coord_y}) Cell AP SQL")
+#         print(cell_final_sql)
+#         print(f"-- 坐标 ({coord_x},{coord_y}) WiFi AP SQL")
+#         print(wifi_final_sql)
+#         print("-" * 80 + "\n")
+#
+#         # 追加写入文件
+#         with open(sql_output_file, 'a', encoding='utf-8') as f:
+#             f.write(coord_output)
+
+
+
+
 if __name__ == "__main__":
-    # ---------------------- 配置参数 ----------------------
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')  # 自动检测GPU/CPU
-    batch_size = 16
-    n_samples = 1000  # 小数据集示例
-    n_reference = 41  # 参考点数量
-    epochs = 50
-    learning_rate = 5e-5
-
-    # ---------------------- 1. 模拟训练数据（适配输入shape） ----------------------
-    # 基站数据：(n_samples, 3, 16) → 模拟RSRP/SINR（-120~-60）
-    base_data = np.random.uniform(low=-120, high=-60, size=(n_samples, 3, 16))
-    # WiFi数据：(n_samples, 20, 16) → 模拟20个AP的RSSI（-100~-30）
-    wifi_data = np.random.uniform(low=-100, high=-30, size=(n_samples, 20, 16))
-    # 标签：(n_samples,) → 0~n_reference-1的整数
-    labels = np.random.randint(low=0, high=n_reference, size=(n_samples,))
-
-    # ---------------------- 2. 数据预处理：归一化（提升训练稳定性） ----------------------
-    # 基站数据归一化：(-120~-60) → (0~1)
-    base_data = (base_data - (-120)) / ((-60) - (-120))  # (x - min) / (max - min)
-    # WiFi数据归一化：(-100~-30) → (0~1)
-    wifi_data = (wifi_data - (-100)) / ((-30) - (-100))
-
-    # ---------------------- 3. 构建数据集和DataLoader ----------------------
-    dataset = FusionDataset(base_data, wifi_data, labels)
-    # 划分训练集（80%）和验证集（20%）
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
-
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-
-    # ---------------------- 4. 初始化模型、损失函数、优化器 ----------------------
-    model = BaseWiFiFusionModel(n_reference_points=n_reference).to(device)  # 模型移到GPU/CPU
-    criterion = nn.CrossEntropyLoss()  # 分类任务损失函数（自动处理logits和long标签）
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)  # 优化器（更新所有可学习参数）
-
-    # ---------------------- 5. 训练循环（机器学习核心流程：参数更新） ----------------------
-    model.train()  # 模型设为训练模式（BatchNorm、Dropout生效）
-    for epoch in range(epochs):
-        running_loss = 0.0
-        correct = 0
-        total = 0
-
-        for batch_idx, (base_batch, wifi_batch, label_batch) in enumerate(train_loader):
-            # 数据移到GPU/CPU
-            base_batch = base_batch.to(device)
-            wifi_batch = wifi_batch.to(device)
-            label_batch = label_batch.to(device)
-
-            # 步骤1：梯度清零（PyTorch需手动清零，避免梯度累积）
-            optimizer.zero_grad()
-
-            # 步骤2：前向传播（计算预测logits）
-            logits = model(base_batch, wifi_batch)  # (batch, n_reference)
-
-            # 步骤3：计算损失（反馈信号：预测与真实标签的差距）
-            loss = criterion(logits, label_batch)
-
-            # 步骤4：反向传播（自动计算所有可学习参数的梯度）
-            loss.backward()  # 核心：PyTorch autograd引擎计算梯度
-
-            # 步骤5：参数更新（优化器按梯度调整参数）
-            optimizer.step()  # 核心：更新self.weight_linear等层的weight和bias
-
-            # 统计训练指标
-            running_loss += loss.item()
-            _, predicted = torch.max(logits.data, 1)  # 取概率最高的参考点ID
-            total += label_batch.size(0)
-            correct += (predicted == label_batch).sum().item()
-
-        # 计算epoch指标
-        train_loss = running_loss / len(train_loader)
-        train_acc = correct / total
-        # 验证集评估（省略，可参考训练流程，用model.eval()和torch.no_grad()）
-
-        # 打印训练信息（含注意力权重）
-        print(f'Epoch [{epoch+1}/{epochs}], Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}')
-        print(f'Base Attention Weight: {model.attention_fusion.base_weight:.2f}, WiFi Weight: {model.attention_fusion.wifi_weight:.2f}')
-
-    # ---------------------- 6. 预测示例 ----------------------
-    model.eval()  # 模型设为评估模式（BatchNorm、Dropout失效）
-    with torch.no_grad():  # 禁用梯度计算，提升速度
-        # 模拟单条测试数据
-        test_base = np.random.uniform(low=-120, high=-60, size=(1, 3, 16))
-        test_wifi = np.random.uniform(low=-100, high=-30, size=(1, 20, 16))
-        # 归一化
-        test_base = (test_base - (-120)) / 60
-        test_wifi = (test_wifi - (-100)) / 70
-        # 转Tensor并移到设备
-        test_base = torch.tensor(test_base, dtype=torch.float32).to(device)
-        test_wifi = torch.tensor(test_wifi, dtype=torch.float32).to(device)
-
-        # 预测
-        logits = model(test_base, test_wifi)
-        pred_prob = F.softmax(logits, dim=1)  # 转换为概率分布
-        pred_reference_id = torch.argmax(pred_prob, dim=1).item()
-
-        # 模拟参考点坐标库
-        reference_coords = {i: (i*1.0, i*0.8) for i in range(n_reference)}
-        final_location = reference_coords[pred_reference_id]
-
-        print(f'\n预测参考点ID：{pred_reference_id}')
-        print(f'最终定位坐标：{final_location}')
-        print(f'注意力权重（基站/WiFi）：{model.attention_fusion.base_weight:.2f}/{model.attention_fusion.wifi_weight:.2f}')
+    fill_map = build_fill_map()
+    build_cell_sql(fill_map)
