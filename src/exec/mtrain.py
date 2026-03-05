@@ -6,12 +6,14 @@ from torch import nn
 
 import util.coor_utils as cu
 from view.mplt import Animator
+import numpy as np
 
 project_name = 'fp-locating'
 lr_file = 'last_lr.txt'
 cur_path = os.path.dirname(__file__)
 root_path = cur_path[:cur_path.find(project_name) + len(project_name)]
 model_path = root_path + '/models'
+cdf_path = root_path + '/cdf/knn_cdf'
 batch_size_changes = {100: 64, 200: 32}  # 在第 100 和 200 epoch 改变 batch_size
 
 # 坐标误差范围表示准确率，室外30m
@@ -44,7 +46,7 @@ def count_geodesic_distance(y_hat, y, norm, p=False):
 
 
 # 一般距离
-def count_normal_distance(y_hat, y, norm, p=False):
+def count_normal_distance(y_hat, y, norm, save=False):
     if norm is not None:
         y_hat = norm.denorm(y_hat)
         y = norm.denorm(y)
@@ -52,6 +54,31 @@ def count_normal_distance(y_hat, y, norm, p=False):
     distance = cu.calc_normal_distance(y_hat, y)
     accuracy = (distance < error_scale_2).sum().item()
     cdf80 = torch.quantile(distance, 0.8).item()
+
+    # 计算完整的CDF分布列表（核心补全逻辑）
+    sorted_distance = torch.sort(distance)[0]  # 距离从小到大排序
+    n_samples = len(sorted_distance)
+    # 累积概率：1/n_samples, 2/n_samples, ..., 1（对应CDF的P(X ≤ x)）
+    cdf_probs = torch.arange(1, n_samples + 1, dtype=torch.float32) / n_samples
+    # 转换为numpy数组（便于绘图）
+    cdf_x = sorted_distance.cpu().numpy()
+    cdf_y = cdf_probs.cpu().numpy()
+
+    # 保存CDF数据到npz文件（核心新增逻辑）
+    if save:
+        # 确保保存目录存在
+        save_dir = os.path.dirname(cdf_path)
+        if save_dir and not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        # 保存（支持多个数组，键名清晰）
+        np.savez(
+            cdf_path,
+            cdf80=cdf80,
+            cdf_x=cdf_x,
+            cdf_y=cdf_y,
+            error_scale_2=error_scale_2  # 额外保存阈值，便于后续绘图
+        )
+        print(f"CDF数据已保存至：{cdf_path}")
 
     return accuracy, distance.mean().item(), cdf80
 

@@ -3,6 +3,11 @@ from torch import nn
 from torch.nn import functional as F
 
 import util.coor_utils as cu
+import numpy as np
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import accuracy_score, mean_squared_error
+import exec.mtrain as mtrain
 
 
 class BasicCnnExtra(nn.Module):
@@ -155,7 +160,7 @@ class CellWifiFusionModel(nn.Module):
 
 
 
-class BasicCnn(nn.Module):
+class CellBasicCnn(nn.Module):
     def __init__(self, in_channels: int = 1, out_dim: int = 2, dropout_rate: float = 0.3):
         super().__init__()
         self.dropout_rate = dropout_rate
@@ -164,18 +169,30 @@ class BasicCnn(nn.Module):
         self.feature_extractor = BasicCnnExtra(in_channels=in_channels, dropout_rate=dropout_rate)
 
         self.dropout = nn.Dropout(dropout_rate)
-        self.fc = nn.Linear(1, out_dim)  # 占位，后续动态修改
-
-    def _calc_flatten_dim(self, img_h: int, img_w: int) -> int:
-        return 5 * img_h * img_w  # 最后一层卷积输出5通道，特征图尺寸=输入尺寸
+        self.fc = nn.Linear(in_channels*150, out_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch_size, _, img_h, img_w = x.shape
 
-        # 首次前向时，动态初始化全连接层输入维度
-        if self.fc.in_features == 1:
-            flatten_dim = self._calc_flatten_dim(img_h, img_w)
-            self.fc = nn.Linear(flatten_dim, self.fc.out_features).to(x.device)
+        # 特征提取 → Flatten → Dropout → 分类
+        x = self.feature_extractor(x)
+        x = x.view(batch_size, -1)  # (batch_size, 5*img_h*img_w)
+        x = self.dropout(x)
+        return self.fc(x)
+
+class WifiBasicCnn(nn.Module):
+    def __init__(self, in_channels: int = 1, out_dim: int = 2, dropout_rate: float = 0.3):
+        super().__init__()
+        self.dropout_rate = dropout_rate
+
+        # 用Sequential封装4个卷积块（Conv→BN→ReLU），精简重复代码
+        self.feature_extractor = BasicCnnExtra(in_channels=in_channels, dropout_rate=dropout_rate)
+
+        self.dropout = nn.Dropout(dropout_rate)
+        self.fc = nn.Linear(500, out_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        batch_size, _, img_h, img_w = x.shape
 
         # 特征提取 → Flatten → Dropout → 分类
         x = self.feature_extractor(x)
@@ -336,3 +353,59 @@ class CombinedLoss(nn.Module):
         mse_loss = self.mse_loss(y_hat, y)
         # 组合损失
         return self.alpha * coord_loss + (1 - self.alpha) * mse_loss
+
+
+class MKNN:
+    """适配多维坐标回归的KNN模型（支持二维/三维坐标等）"""
+
+    def __init__(self, n_neighbors=5, device="cpu"):
+        self.knn = KNeighborsRegressor(n_neighbors=n_neighbors)
+        self.scaler = StandardScaler()  # 仅对特征归一化，标签（坐标）无需归一化
+        self.device = device
+        self.is_fitted = False
+
+    def convert_input(self, x):
+        """转换PyTorch张量（batch, C, H, W）为KNN可接受的二维数组"""
+        if isinstance(x, torch.Tensor):
+            # 处理CUDA张量+解除梯度关联
+            x_np = x.cpu().detach().numpy()
+        else:
+            x_np = np.array(x)
+        # 展平特征：(batch, C, H, W) → (batch, C*H*W)
+        return x_np.reshape(x_np.shape[0], -1)
+
+    def fit(self, x, y_coords):
+        """
+        训练KNN（标签为多维坐标）
+        :param x: 特征数据（张量/数组），形状 (n_samples, C, H, W)
+        :param y_coords: 坐标标签（张量/数组），形状 (n_samples, dim)（dim=2则是二维坐标）
+        """
+        # 1. 转换特征格式
+        x_flat = self.convert_input(x)
+        # 2. 特征归一化（关键：仅特征需要，坐标标签保持原始尺度）
+        x_scaled = self.scaler.fit_transform(x_flat)
+        # 3. 转换坐标标签为numpy数组（保留多维结构）
+        if isinstance(y_coords, torch.Tensor):
+            y_coords_np = y_coords.cpu().detach().numpy()
+        else:
+            y_coords_np = np.array(y_coords)
+
+        # 4. 训练KNN（核心：标签不展平，保留多维）
+        self.knn.fit(x_scaled, y_coords_np)
+        self.is_fitted = True
+        print(f"KNN训练完成，坐标维度：{y_coords_np.shape[1]}")
+
+    def predict(self, x,y):
+        """预测多维坐标"""
+        if not self.is_fitted:
+            raise RuntimeError("请先调用fit()训练模型！")
+
+        # 特征转换+归一化
+        x_flat = self.convert_input(x)
+        x_scaled = self.scaler.transform(x_flat)
+        # 预测（返回形状：(n_samples, dim)）
+        y_predict = self.knn.predict(x_scaled)
+
+        y_hat = torch.tensor(y_predict)
+        accuracy, mean_error, cdf80 = mtrain.count_normal_distance(y_hat,y,None,save=True)
+        return accuracy/y.shape[0], round(mean_error,2), round(cdf80,2)

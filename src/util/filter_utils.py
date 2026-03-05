@@ -9,6 +9,7 @@ from matplotlib.widgets import Slider, Button
 import time
 from util.mysql_utils import MySQLConnector
 from datetime import datetime
+import random
 
 plt.rcParams['font.sans-serif'] = ['Arial Unicode MS']
 
@@ -91,7 +92,7 @@ def generate_sample_data(n_points=100, base_value=-90, noise_level=10, trend_str
 class KalmanFilterVisualizer:
     """卡尔曼滤波可视化工具类"""
 
-    def __init__(self, data=None, q=0.01, r=1.0, p=1.,ymin=-110,ymax=-95):
+    def __init__(self, data=None, q=0.05, r=1.0, p=1.,ymin=-110,ymax=-95):
         """
         初始化可视化工具
 
@@ -119,7 +120,7 @@ class KalmanFilterVisualizer:
         self.filtered_line, = self.ax.plot([], 'g-', linewidth=2, label='滤波后信号')
 
         # 设置图表属性
-        self.ax.set_title('卡尔曼滤波信号过滤结果')
+        self.ax.set_title('RSSI过滤结果')
         self.ax.set_xlabel('索引序号')
         self.ax.set_ylabel('信号值')
         self.ax.set_ylim(ymin, ymax)  # 设置y轴范围略大于信号范围
@@ -216,6 +217,9 @@ class KalmanFilterVisualizer:
         # 刷新图表
         self.fig.canvas.draw_idle()
 
+    def get_filter_data(self):
+        return self.filtered_data
+
     def reset_filter(self, event):
         """重置滤波器参数到默认值"""
         self.q = 0.01
@@ -277,18 +281,89 @@ def build_single_data(space_id,rp_x,rp_y,ap_id):
             return rsrp_list
 
 
+def process_signal_data(data_list):
+    """
+    信号数据处理主方法：
+    1. 给每个整数添加0-1之间的两位随机小数
+    2. 随机挑选部分值，减去10-20之间的两位随机浮点数
+    3. 打乱最终数据列表
+    :param data_list: 原始整数列表
+    :return: 处理后的乱序列表
+    """
+    # 第一步：给每个值添加0-1的两位随机小数
+    processed_list = []
+    for num in data_list:
+        random_decimal_0_1 = round(random.uniform(0, 1), 2)
+        new_num = num + random_decimal_0_1
+        processed_list.append(new_num)
+
+    # 第二步：随机挑选部分值，减去10-20之间的两位随机浮点数
+    # 随机确定要修改的数量（1~列表长度的一半，避免修改过多）
+    # modify_count = random.randint(1, max(1,len(processed_list)))
+    # modify_count = len(processed_list)//2
+    # modify_count = 50
+    # # 随机选择要修改的索引（不重复）
+    # modify_indices = random.sample(range(len(processed_list)), modify_count)
+    #
+    # for idx in modify_indices:
+    #     random_decimal_10_20 = round(random.uniform(0, 2), 2)
+    #
+    #     mode = random.choice((1, 0))
+    #     if mode==1:
+    #         processed_list[idx] = round(processed_list[idx] - random_decimal_10_20,2)
+    #     else:
+    #         processed_list[idx] = round(processed_list[idx] + random_decimal_10_20,2)
+
+    return processed_list
+
+
+def calculate_variance(num_list, is_sample=True):
+    """
+    计算数值列表的方差
+    :param num_list: 待计算的数值列表（如processed_list）
+    :param is_sample: 是否计算样本方差（True=样本方差，False=总体方差，默认False）
+    :return: 方差值（保留4位小数）
+    """
+    # 空列表校验
+    if len(num_list) == 0:
+        raise ValueError("列表不能为空，无法计算方差")
+    if len(num_list) == 1 and is_sample:
+        raise ValueError("样本方差要求列表长度至少为2")
+
+    # 步骤1：计算列表的均值
+    mean = round(sum(num_list) / len(num_list),2)
+
+    # 步骤2：计算每个值与均值的差的平方和
+    squared_diff_sum = sum((x - mean) ** 2 for x in num_list)
+
+    # 步骤3：计算方差（总体方差/样本方差）
+    if is_sample:
+        # 样本方差：除以 n-1（n为列表长度）
+        variance = squared_diff_sum / (len(num_list) - 1)
+    else:
+        # 总体方差：除以 n
+        variance = squared_diff_sum / len(num_list)
+
+    # 保留4位小数，避免精度冗余
+    return round(variance, 4)
 
 if __name__ == "__main__":
     # 生成示例数据
     # data = generate_sample_data(n_points=100, base_value=-90, noise_level=10)
-    rsrp_list = build_single_data(15, 11, 10.25,268)
-    ymax = max(rsrp_list)+3
-    ymin = min(rsrp_list)-3
+    # rsrp_list = build_single_data(19, 1.02, 6.04,"a4:a9:30:c6:88:6e")
+    rsrp_list = build_single_data(19, 1.02, 6.04,16022)
+    # processed_list = process_signal_data(rsrp_list)
+    processed_list=rsrp_list
+    print("方差："+str(calculate_variance(processed_list)))
+
+    ymax = max(processed_list)+1
+    ymin = min(processed_list)-1
     # 创建并显示可视化工具
-    visualizer = KalmanFilterVisualizer(rsrp_list,ymin=ymin,ymax=ymax)
+    visualizer = KalmanFilterVisualizer(processed_list,ymin=ymin,ymax=ymax)
 
     # 打印结果
-    visualizer.print_results()
+    # visualizer.print_results()
 
+    print("方差："+str(calculate_variance(visualizer.get_filter_data())))
     # 显示图形界面
-    visualizer.show()
+    # visualizer.show()
