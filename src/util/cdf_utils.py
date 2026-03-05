@@ -29,7 +29,7 @@ class CDFPlotter:
         # 初始化样式
         self.ax.set_xlabel("误差/m", fontsize=12)
         self.ax.set_ylabel("累积概率", fontsize=12)
-        self.ax.set_ylim(0, 1.05)  # y轴固定0-1.05（留出余量）
+        self.ax.set_ylim(0, 0.9)  # y轴固定0-1.05（留出余量）
         self.ax.grid(alpha=0.3, linestyle='-')
         self.ax.tick_params(axis='both', labelsize=10)
 
@@ -139,71 +139,3 @@ class CDFPlotter:
         plt.close(self.fig)
 
 
-# ===================== 完整使用示例（适配之前的逻辑） =====================
-# 1. 复用之前的距离计算函数
-class MockCU:
-    @staticmethod
-    def calc_normal_distance(y_hat, y):
-        return torch.norm(y_hat - y, p=2, dim=-1)
-
-
-cu = MockCU()
-
-
-def count_normal_distance(y_hat, y, norm=None, error_scale_2=1.0):
-    if norm is not None:
-        y_hat = norm.denorm(y_hat)
-        y = norm.denorm(y)
-    distance = cu.calc_normal_distance(y_hat, y)
-    accuracy = (distance < error_scale_2).sum().item()
-    mean_distance = distance.mean().item()
-    cdf80 = torch.quantile(distance, 0.8).item()
-
-    # 计算完整CDF
-    sorted_distance = torch.sort(distance)[0]
-    n_samples = len(sorted_distance)
-    cdf_probs = torch.arange(1, n_samples + 1, dtype=torch.float32) / n_samples
-    cdf_x = sorted_distance
-    cdf_y = cdf_probs
-
-    return accuracy, mean_distance, cdf80, cdf_x, cdf_y
-
-
-if __name__ == "__main__":
-    # 模拟数据：二维坐标预测（1000个样本）
-    n_samples = 1000
-    dim = 2
-    y_true = torch.randn(n_samples, dim)  # 真实坐标
-    y_pred1 = y_true + torch.randn(n_samples, dim) * 0.5  # 模型1预测（小噪声）
-    y_pred2 = y_true + torch.randn(n_samples, dim) * 0.8  # 模型2预测（大噪声）
-
-    # 计算两个模型的CDF数据
-    acc1, mean1, cdf80_1, cdf_x1, cdf_y1 = count_normal_distance(y_pred1, y_true, error_scale_2=1.0)
-    acc2, mean2, cdf80_2, cdf_x2, cdf_y2 = count_normal_distance(y_pred2, y_true, error_scale_2=1.0)
-
-    # 初始化CDF绘图工具
-    plotter = CDFPlotter(figsize=(9, 6), dpi=120)
-
-    # 添加两条CDF曲线（对比两个模型）
-    plotter.add_cdf_curve(cdf_x1, cdf_y1, label="模型1（小噪声）", color="#2E86AB", linewidth=2)
-    plotter.add_cdf_curve(cdf_x2, cdf_y2, label="模型2（大噪声）", color="#A23B72", linewidth=2, linestyle="--")
-
-    # 标记两个模型的CDF80分位数
-    plotter.mark_quantile(cdf80_1, quantile_percent=80, color="#2E86AB", linestyle="--")
-    plotter.mark_quantile(cdf80_2, quantile_percent=80, color="#A23B72", linestyle="--")
-
-    # 标记准确率阈值（1.0m）
-    plotter.mark_threshold(1.0, label="准确率阈值（误差<1m）", color="#F18F01", linestyle=":")
-
-    # 设置标题和图例
-    plotter.set_title("坐标预测误差CDF分布对比")
-    plotter.show_legend(loc="lower right")
-
-    # 保存+显示图片
-    plotter.save_fig("cdf_error_distribution.png")
-    plotter.show_fig()
-    plotter.close_fig()
-
-    # 打印关键指标
-    print(f"模型1 - 准确样本数：{acc1}/{n_samples}，平均误差：{mean1:.4f}m，CDF80：{cdf80_1:.4f}m")
-    print(f"模型2 - 准确样本数：{acc2}/{n_samples}，平均误差：{mean2:.4f}m，CDF80：{cdf80_2:.4f}m")

@@ -13,7 +13,7 @@ lr_file = 'last_lr.txt'
 cur_path = os.path.dirname(__file__)
 root_path = cur_path[:cur_path.find(project_name) + len(project_name)]
 model_path = root_path + '/models'
-cdf_path = root_path + '/cdf/knn_cdf'
+cdf_path = root_path + '/cdf/nn_cdf'
 batch_size_changes = {100: 64, 200: 32}  # 在第 100 和 200 epoch 改变 batch_size
 
 # 坐标误差范围表示准确率，室外30m
@@ -61,8 +61,8 @@ def count_normal_distance(y_hat, y, norm, save=False):
     # 累积概率：1/n_samples, 2/n_samples, ..., 1（对应CDF的P(X ≤ x)）
     cdf_probs = torch.arange(1, n_samples + 1, dtype=torch.float32) / n_samples
     # 转换为numpy数组（便于绘图）
-    cdf_x = sorted_distance.cpu().numpy()
-    cdf_y = cdf_probs.cpu().numpy()
+    cdf_x = sorted_distance.detach().cpu().numpy()
+    cdf_y = cdf_probs.detach().cpu().numpy()
 
     # 保存CDF数据到npz文件（核心新增逻辑）
     if save:
@@ -108,14 +108,14 @@ def evaluate_result(net, device, data_iter, norm, mode):
         if mode == 'single':
             for X, y in data_iter:
                 X, y = X.to(device), y.to(device)
-                distance = count_normal_distance(net(X), y, norm)
+                distance = count_normal_distance(net(X), y, norm,save=True)
                 metric.add(distance[0], y.numel() / 2)
         else:
             for cell_X, wifi_X, y in data_iter:
                 cell_X = cell_X.to(device, dtype=torch.float)
                 wifi_X = wifi_X.to(device, dtype=torch.float)
                 y = y.to(device, dtype=torch.float)
-                distance = count_normal_distance(net(cell_X, wifi_X), y, norm)
+                distance = count_normal_distance(net(cell_X, wifi_X), y, norm,save=True)
                 metric.add(distance[0], y.numel() / 2)
 
     return metric[0] / metric[1], distance[1], distance[2]

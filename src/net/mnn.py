@@ -407,5 +407,5 @@ class MKNN:
         y_predict = self.knn.predict(x_scaled)
 
         y_hat = torch.tensor(y_predict)
-        accuracy, mean_error, cdf80 = mtrain.count_normal_distance(y_hat,y,None,save=True)
+        accuracy, mean_error, cdf80 = mtrain.count_normal_distance(y_hat,y,None,save='knn_cdf')
         return accuracy/y.shape[0], round(mean_error,2), round(cdf80,2)
