@@ -15,9 +15,9 @@ root_dir = str(Path(os.path.abspath(__file__)).parent.parent)
 data_dir = root_dir + '/data'
 cdf_dir = root_dir + '/cdf/'
 
-plt.rcParams['font.sans-serif'] = ['SimHei']
+plt.rcParams['font.sans-serif'] = ['Arial Unicode MS']
 
-def run(space_id: int, dataset_id: int, data_path, batch_size=50, epochs=300, record_term=50):
+def run(space_id: int, dataset_id: int, data_path, batch_size=50, epochs=100, record_term=50):
     print('current train data:' + data_path)
     label_norm = None
 
@@ -25,12 +25,10 @@ def run(space_id: int, dataset_id: int, data_path, batch_size=50, epochs=300, re
     cell_train_iter, cell_test_iter, wifi_train_iter, wifi_test_iter, fusion_train_iter, fusion_test_iter,shape = load_data(
         file_path, batch_size)
 
-    # net = mnn.CellWifiFusionModel(cell_in_channels=cell_train_iter.dataset[0][0].shape[0], wifi_in_channels=1, base_feat_channels=5,
-    #                             fused_hidden=128, cell_bias_init=1.0)
 
-    net = mnn.CellWifiFusionModel(cell_in_channels=shape[0],fused_hidden=32)
+    # net = mnn.CellWifiFusionModel(cell_in_channels=shape[0],fused_hidden=32)
     # net = mnn.WifiBasicCnn(in_channels=1)
-    # net = mnn.CellBasicCnn(in_channels=1)
+    net = mnn.CellBasicCnn(in_channels=2)
     loss = nn.MSELoss()
 
     model_name = str(space_id) + '_' + str(dataset_id)
@@ -39,14 +37,14 @@ def run(space_id: int, dataset_id: int, data_path, batch_size=50, epochs=300, re
     mapper.update_dataset_status(dataset_id, 'doing')
 
     try:
-        train.train(net, fusion_train_iter, fusion_test_iter, loss, epochs, label_norm,
-                    model_file, record_term=record_term, mode='multi')
+        # train.train(net, fusion_train_iter, fusion_test_iter, loss, epochs, label_norm,
+        #             model_file, record_term=record_term, mode='multi')
 
         # train.train(net, wifi_train_iter, wifi_test_iter, loss, epochs, label_norm,
         #             'wifi_'+model_file, record_term=record_term, mode='single')
         #
-        # train.train(net, cell_train_iter, cell_test_iter, loss, epochs, label_norm,
-        #             'cell_' + model_file, record_term=record_term, mode='single')
+        train.train(net, cell_train_iter, cell_test_iter, loss, epochs, label_norm,
+                    'cell_' + model_file, record_term=record_term, mode='single')
     except Exception as e:
         mapper.update_dataset_status(dataset_id, 'fail')
         raise e
@@ -134,12 +132,24 @@ def cdf_draw():
     cd_cell = np.load(cnn_cell_cdf_path, allow_pickle=True)
     fd_cell = np.load(fusion_cdf_path, allow_pickle=True)
 
+    val_19 = {
+        "cdf_x": [0.0721, 0.2460, 0.2474, 0.3130, 0.3636, 0.4727, 0.4904, 0.5016, 0.5608, 1.0102, 1.0738, 1.4838, 1.5524],
+        "cdf_y": [0.0769, 0.1538, 0.2308, 0.3077, 0.3846, 0.4615, 0.5385, 0.6154, 0.6923, 0.7692, 0.8462, 0.9231, 1.0]
+    }
+
+    val_15 ={
+        "cdf_x": [0.1237, 0.5250, 0.5394, 0.5404, 0.5536, 0.5948, 0.8021, 0.8559, 0.8841, 0.9702, 1.1513, 1.2216, 1.2802, 2.2432],
+        "cdf_y": [0.0714, 0.1429, 0.2143, 0.2857, 0.3571, 0.4286, 0.5000, 0.5714, 0.6429, 0.7143, 0.7857, 0.8571, 0.9286, 1.0000]
+    }
+
     # 添加两条CDF曲线（对比两个模型）
-    plotter.add_cdf_curve(kd_wifi["cdf_x"], kd_wifi["cdf_y"], label="KNN_WiFi", color=COLORS["knn_wifi"], linewidth=2)
-    plotter.add_cdf_curve(kd_cell["cdf_x"], kd_cell["cdf_y"], label="KNN_Cell", color=COLORS["knn_cell"], linewidth=2)
-    plotter.add_cdf_curve(cd_wifi["cdf_x"], cd_wifi["cdf_y"], label="CNN_WiFi", color=COLORS["cnn_wifi"], linewidth=2)
-    plotter.add_cdf_curve(cd_cell["cdf_x"], cd_cell["cdf_y"], label="CNN_Cell", color=COLORS["cnn_cell"], linewidth=2)
-    plotter.add_cdf_curve(fd_cell["cdf_x"], fd_cell["cdf_y"], label="CNN_Attention", color=COLORS["fusion"], linewidth=2)
+    # plotter.add_cdf_curve(kd_wifi["cdf_x"], kd_wifi["cdf_y"], label="KNN_WiFi", color=COLORS["knn_wifi"], linewidth=2)
+    # plotter.add_cdf_curve(kd_cell["cdf_x"], kd_cell["cdf_y"], label="KNN_Cell", color=COLORS["knn_cell"], linewidth=2)
+    # plotter.add_cdf_curve(cd_wifi["cdf_x"], cd_wifi["cdf_y"], label="CNN_WiFi", color=COLORS["cnn_wifi"], linewidth=2)
+    # plotter.add_cdf_curve(cd_cell["cdf_x"], cd_cell["cdf_y"], label="CNN_Cell", color=COLORS["cnn_cell"], linewidth=2)
+    # plotter.add_cdf_curve(fd_cell["cdf_x"], fd_cell["cdf_y"], label="CNN_Attention", color=COLORS["fusion"], linewidth=2)
+    # plotter.add_cdf_curve(val_19["cdf_x"], val_19["cdf_y"], label="CNN_Attention_实验室验证", color=COLORS["fusion"], linewidth=2)
+    plotter.add_cdf_curve(val_15["cdf_x"], val_15["cdf_y"], label="CNN_Attention_居民楼验证", color=COLORS["fusion"], linewidth=2)
 
     # 标记两个模型的CDF80分位数
     # plotter.mark_quantile(kd_wifi["cdf80"].item(), quantile_percent=80, color=COLORS["knn_wifi"], linestyle="--")
@@ -147,6 +157,7 @@ def cdf_draw():
     # plotter.mark_quantile(cd_wifi["cdf80"].item(), quantile_percent=80, color=COLORS["cnn_wifi"], linestyle="--")
     # plotter.mark_quantile(cd_cell["cdf80"].item(), quantile_percent=80, color=COLORS["cnn_cell"], linestyle="--")
     # plotter.mark_quantile(fd_cell["cdf80"].item(), quantile_percent=80, color=COLORS["fusion"], linestyle="--")
+
 
     # 设置标题和图例
     plotter.set_title("坐标预测误差CDF分布对比")
@@ -157,6 +168,6 @@ def cdf_draw():
 
 
 if __name__ == '__main__':
-    # run(19, 10019, '/19/collection_19test_02', batch_size=32)
-    # knn_run(19, 10016, '/19/collection_19test_02', batch_size=10000)
-    cdf_draw()
+    run(19, 10019, '/19/collection_19test_03', batch_size=254)
+    # # knn_run(19, 10016, '/19/collection_19test_02', batch_size=10000)
+    # cdf_draw()

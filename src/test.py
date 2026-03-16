@@ -68,7 +68,7 @@ def build_fill_map():
                        round(avg(ap_sinr)) target_sinr,
                        group_concat(request_batch_id) as request_batch 
                 from single_collection_data 
-                where source='cell' and space_id=15 
+                where source='cell' and space_id=19 
                 group by rp_x,rp_y,ap_id 
                 order by ap_id asc,rp_x desc,rp_y desc
             """  # 注：原SQL的group by多了ap_name，cell的source下可能无ap_name，已修正
@@ -77,8 +77,17 @@ def build_fill_map():
                        round(avg(ap_rssi)) target_rssi,
                        group_concat(request_batch_id) as request_batch 
                 from single_collection_data 
-                where source='wifi' and space_id=15 
-                  and ap_id in ('9a:4a:6b:57:18:fe','9a:4a:6b:93:0b:7a','de:a7:82:43:5e:00','c2:a4:76:98:1b:2c','9a:4a:6b:82:be:82','9a:4a:6b:97:18:fe','9a:4a:6b:17:18:fe','9a:4a:6b:92:be:82','c2:a4:76:88:1b:2c','9a:4a:6b:83:0b:7a') 
+                where source='wifi' and space_id=19 
+                  and ap_id in ('58:41:20:39:4e:0b',
+                                'a4:a9:30:c6:88:6f',
+                                'a4:a9:30:ec:cf:63',
+                                '64:6e:97:e7:c0:72',
+                                'a4:a9:30:ec:cf:62',
+                                'a4:a9:30:c6:88:6e',
+                                '24:5a:5f:81:bc:40',
+                                '4c:c6:4c:b1:a9:66',
+                                'a4:a9:30:c6:85:2e',
+                                '16:cb:19:99:2f:b1') 
                 group by rp_x,rp_y,ap_id,ap_name 
                 order by ap_name asc,rp_x desc,rp_y desc
             """
@@ -160,16 +169,15 @@ def build_fill_map():
 def build_cell_sql(fill_map: dict):
     # 修正WiFi的source字段（原错误写为'cell'）
     CELL_SQL_INSERT = "insert into single_collection_data (space_id, collection_batch_id, request_batch_id, ap_id, ap_rsrp, ap_rsrq, ap_sinr, rp_x, rp_y, source,type) values\n"
-    CELL_SQL_VALUE = "(15,1772167533230,{request_batch_id},'{ap_id}',{ap_rsrp},{ap_rsrq},{ap_sinr},{rp_x},{rp_y},'cell',2),\n"
+    CELL_SQL_VALUE = "(19,1772620014321,{request_batch_id},'{ap_id}',{ap_rsrp},{ap_rsrq},{ap_sinr},{rp_x},{rp_y},'cell',2),\n"
 
     WIFI_SQL_INSERT = "insert into single_collection_data (space_id, collection_batch_id, request_batch_id, ap_id,ap_name, ap_rssi, rp_x, rp_y, source,type) values\n"
-    WIFI_SQL_VALUE = "(15,1772167533230,{request_batch_id},'{ap_id}','{ap_name}',{ap_rssi},{rp_x},{rp_y},'wifi',2),\n"
+    WIFI_SQL_VALUE = "(19,1772620014321,{request_batch_id},'{ap_id}','{ap_name}',{ap_rssi},{rp_x},{rp_y},'wifi',2),\n"
 
     sql_output_file = f"fill_all_sql_{int(time.time() * 1000)}.sql"
     # 初始化文件（清空原有内容，保证每次运行重新生成）
     with open(sql_output_file, 'w', encoding='utf-8') as f:
         f.write(f"-- 信号补全SQL文件，生成时间：{time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"-- 空间ID：15，采集批次ID：{collections_batch_id}\n\n")
 
     for coord, apx in fill_map.items():
         coord_array = coord.split('_')

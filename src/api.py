@@ -10,6 +10,8 @@ import threading
 import logging
 
 # 初始化Flask应用
+logging.getLogger('werkzeug').setLevel(logging.WARNING)
+
 app = Flask(__name__)
 
 logging.basicConfig(
@@ -18,6 +20,7 @@ logging.basicConfig(
     handlers=[logging.FileHandler('train_thread.log'), logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
+
 
 
 # # ------------------------------

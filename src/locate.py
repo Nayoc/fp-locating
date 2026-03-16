@@ -73,8 +73,8 @@ def run(dataset_url, ap_list, model_file):
     wifi_set = torch.stack(wifi_set, dim=0)
     # -------------------------- 插入逻辑结束 --------------------------
 
-    print(f"Cell输入shape: {cell_set.shape}")  # 打印验证：(batch, n, 16, 3)
-    print(f"WiFi输入shape: {wifi_set.shape}")  # 打印验证：(batch, 1, 16, 10)
+    # print(f"Cell输入shape: {cell_set.shape}")  # 打印验证：(batch, n, 16, 3)
+    # print(f"WiFi输入shape: {wifi_set.shape}")  # 打印验证：(batch, 1, 16, 10)
 
     net = mnn.CellWifiFusionModel(cell_in_channels=cell_set.shape[1], wifi_in_channels=1,
                                   base_feat_channels=5,
@@ -84,13 +84,14 @@ def run(dataset_url, ap_list, model_file):
         net = train.load_model(net, model_file, mode='eval')
 
         data = {'cell': cell_set, 'wifi': wifi_set}
-        predications = train.calculate(net, train.try_gpu(), data, model=0)
+        predications = train.calculate(net, train.try_gpu(), data, model=1)
 
         pred_cpu = predications.cpu()  # 转移到CPU（避免GPU tensor无法直接转标量）
         pred_np = pred_cpu.squeeze(0).numpy()
         x = round(pred_np[0].item(), 2)
         y = round(pred_np[1].item(), 2)  # 转为Python float
-        print('predications——>x:' + str(x) + ",y:" + str(y))
+        print(str(x) + "," + str(y))
+        # print('predications——>x:' + str(x) + ",y:" + str(y))
         return x, y
     except Exception as e:
         raise
@@ -98,4 +99,4 @@ def run(dataset_url, ap_list, model_file):
 
 
 if __name__ == '__main__':
-    run([])
+    run('/19/collection_19test_02',[],'10_10019.params')
