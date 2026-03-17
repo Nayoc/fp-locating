@@ -169,7 +169,7 @@ class CellBasicCnn(nn.Module):
         self.feature_extractor = BasicCnnExtra(in_channels=in_channels, dropout_rate=dropout_rate)
 
         self.dropout = nn.Dropout(dropout_rate)
-        self.fc = nn.Linear(in_channels*150, out_dim)
+        self.fc = nn.Linear(150, out_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch_size, _, img_h, img_w = x.shape

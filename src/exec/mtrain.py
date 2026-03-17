@@ -65,20 +65,20 @@ def count_normal_distance(y_hat, y, norm, save=False):
     cdf_y = cdf_probs.detach().cpu().numpy()
 
     # 保存CDF数据到npz文件（核心新增逻辑）
-    if save:
-        # 确保保存目录存在
-        save_dir = os.path.dirname(cdf_path)
-        if save_dir and not os.path.exists(save_dir):
-            os.makedirs(save_dir)
-        # 保存（支持多个数组，键名清晰）
-        np.savez(
-            cdf_path,
-            cdf80=cdf80,
-            cdf_x=cdf_x,
-            cdf_y=cdf_y,
-            error_scale_2=error_scale_2  # 额外保存阈值，便于后续绘图
-        )
-        print(f"CDF数据已保存至：{cdf_path}")
+    # if save:
+    #     # 确保保存目录存在
+    #     save_dir = os.path.dirname(cdf_path)
+    #     if save_dir and not os.path.exists(save_dir):
+    #         os.makedirs(save_dir)
+    #     # 保存（支持多个数组，键名清晰）
+    #     np.savez(
+    #         cdf_path,
+    #         cdf80=cdf80,
+    #         cdf_x=cdf_x,
+    #         cdf_y=cdf_y,
+    #         error_scale_2=error_scale_2  # 额外保存阈值，便于后续绘图
+    #     )
+    #     print(f"CDF数据已保存至：{cdf_path}")
 
     return accuracy, distance.mean().item(), cdf80
 
@@ -211,7 +211,7 @@ def judge_loss_weight(num):
 
 def train(net, train_iter, val_iter, loss, num_epochs, label_norm,
           model_file, record_term=100, mode='single'):
-    lr = 0.001
+    lr = 0.0001
     print('current learning rate:' + str(lr))
 
     # 加载历史训练模型

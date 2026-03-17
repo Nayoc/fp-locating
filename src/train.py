@@ -168,6 +168,6 @@ def cdf_draw():
 
 
 if __name__ == '__main__':
-    run(19, 10019, '/19/collection_19test_03', batch_size=254)
+    run(19, 10019, '/19/collection_19test_03', batch_size=128)
     # # knn_run(19, 10016, '/19/collection_19test_02', batch_size=10000)
     # cdf_draw()
