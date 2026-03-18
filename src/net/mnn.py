@@ -60,13 +60,15 @@ class SEBlock(nn.Module):
 # 融合模块（modal attention + FC 回归头）
 # -------------------------
 class FusionAttentionRegression(nn.Module):
-    def __init__(self, feat_channels: int, fused_hidden: int = 128, cell_bias_init: float = 1.0):
+    def __init__(self, feat_channels: int, fused_hidden: int = 128, cell_bias_init: float = 1.0,se=True,modality=True):
         """
         feat_channels: BasicCnnExtra 最终输出的通道数（例如 5）
         cell_bias_init: 用于让 cell 初始权重偏高（logit bias）
         """
         super().__init__()
         self.feat_channels = feat_channels
+        self.se = se
+        self.modality = modality
 
         # SE for each branch (we can share or use distinct; 用 distinct)
         self.se_cell = SEBlock(feat_channels, reduction=2)
@@ -100,23 +102,25 @@ class FusionAttentionRegression(nn.Module):
         feat_*: B x C x H x W  (C == feat_channels)
         """
         # apply SE
-        feat_cell = self.se_cell(feat_cell)
-        feat_wifi = self.se_wifi(feat_wifi)
+        if self.se:
+            feat_cell = self.se_cell(feat_cell)
+            feat_wifi = self.se_wifi(feat_wifi)
 
         # pool to vectors
         v_cell = self.pool(feat_cell).view(feat_cell.size(0), -1)  # B x C
         v_wifi = self.pool(feat_wifi).view(feat_wifi.size(0), -1)  # B x C
 
         # modality logits
-        logit_cell = self.modality_fc(v_cell).squeeze(-1) + self.logit_bias_cell  # B
-        logit_wifi = self.modality_fc(v_wifi).squeeze(-1) + self.logit_bias_wifi  # B
-
-        logits = torch.stack([logit_cell, logit_wifi], dim=1)  # B x 2
-        weights = F.softmax(logits, dim=1)  # B x 2
-        # w_cell = weights[:, 0].unsqueeze(-1)  # B x 1
-        # w_wifi = weights[:, 1].unsqueeze(-1)
-        w_cell = 0.5
-        w_wifi = 0.5
+        if self.modality:
+            logit_cell = self.modality_fc(v_cell).squeeze(-1) + self.logit_bias_cell  # B
+            logit_wifi = self.modality_fc(v_wifi).squeeze(-1) + self.logit_bias_wifi  # B
+            logits = torch.stack([logit_cell, logit_wifi], dim=1)  # B x 2
+            weights = F.softmax(logits, dim=1)  # B x 2
+            w_cell = weights[:, 0].unsqueeze(-1)  # B x 1
+            w_wifi = weights[:, 1].unsqueeze(-1)
+        else:
+            w_cell = 0.5
+            w_wifi = 0.5
 
         # fused vector
         fused = w_cell * v_cell + w_wifi * v_wifi  # B x C
@@ -129,7 +133,7 @@ class FusionAttentionRegression(nn.Module):
 # -------------------------
 # 完整封装模型：两个分支（cell: in_channels=3, wifi: in_channels=1）
 # -------------------------
-class CellWifiFusionModel(nn.Module):
+class FusionModelFinal(nn.Module):
     def __init__(self,
                  cell_in_channels=4,
                  wifi_in_channels=1,
@@ -156,9 +160,92 @@ class CellWifiFusionModel(nn.Module):
         out= self.fusion(feat_c, feat_w)
         return out
 
+class FusionModelBase(nn.Module):
+    def __init__(self,
+                 cell_in_channels=4,
+                 wifi_in_channels=1,
+                 base_feat_channels=5,   # 应匹配 BasicCnnExtra 的最终输出通道数 (这里是5)
+                 fused_hidden=128,
+                 cell_bias_init: float = 1.0):
+        super().__init__()
+        # 两个分支用 BasicCnnExtra（独立实例）
+        self.cell_cnn = BasicCnnExtra(in_channels=cell_in_channels)
+        self.wifi_cnn = BasicCnnExtra(in_channels=wifi_in_channels)
 
+        # 确认最后输出通道数（BasicCnnExtra 固定为 5）
+        assert base_feat_channels == 5, "Ensure base_feat_channels match BasicCnnExtra's last channel (5)"
 
+        self.fusion = FusionAttentionRegression(feat_channels=base_feat_channels,
+                                                fused_hidden=fused_hidden,
+                                                cell_bias_init=cell_bias_init,
+                                                se=False,
+                                                modality=False)
 
+    def forward(self, x_cell, x_wifi):
+        # x_cell: B x 3 x 16 x 3  (例)
+        # x_wifi: B x 1 x 16 x 20
+        feat_c = self.cell_cnn(x_cell)   # B x C x H x W
+        feat_w = self.wifi_cnn(x_wifi)   # B x C x H x W
+        out= self.fusion(feat_c, feat_w)
+        return out
+
+class FusionModelSE(nn.Module):
+    def __init__(self,
+                 cell_in_channels=4,
+                 wifi_in_channels=1,
+                 base_feat_channels=5,   # 应匹配 BasicCnnExtra 的最终输出通道数 (这里是5)
+                 fused_hidden=128,
+                 cell_bias_init: float = 1.0):
+        super().__init__()
+        # 两个分支用 BasicCnnExtra（独立实例）
+        self.cell_cnn = BasicCnnExtra(in_channels=cell_in_channels)
+        self.wifi_cnn = BasicCnnExtra(in_channels=wifi_in_channels)
+
+        # 确认最后输出通道数（BasicCnnExtra 固定为 5）
+        assert base_feat_channels == 5, "Ensure base_feat_channels match BasicCnnExtra's last channel (5)"
+
+        self.fusion = FusionAttentionRegression(feat_channels=base_feat_channels,
+                                                fused_hidden=fused_hidden,
+                                                cell_bias_init=cell_bias_init,
+                                                se=True,
+                                                modality=False)
+
+    def forward(self, x_cell, x_wifi):
+        # x_cell: B x 3 x 16 x 3  (例)
+        # x_wifi: B x 1 x 16 x 20
+        feat_c = self.cell_cnn(x_cell)   # B x C x H x W
+        feat_w = self.wifi_cnn(x_wifi)   # B x C x H x W
+        out= self.fusion(feat_c, feat_w)
+        return out
+
+class FusionModelModality(nn.Module):
+    def __init__(self,
+                 cell_in_channels=4,
+                 wifi_in_channels=1,
+                 base_feat_channels=5,   # 应匹配 BasicCnnExtra 的最终输出通道数 (这里是5)
+                 fused_hidden=128,
+                 cell_bias_init: float = 1.0):
+        super().__init__()
+        # 两个分支用 BasicCnnExtra（独立实例）
+        self.cell_cnn = BasicCnnExtra(in_channels=cell_in_channels)
+        self.wifi_cnn = BasicCnnExtra(in_channels=wifi_in_channels)
+
+        # 确认最后输出通道数（BasicCnnExtra 固定为 5）
+        assert base_feat_channels == 5, "Ensure base_feat_channels match BasicCnnExtra's last channel (5)"
+
+        self.fusion = FusionAttentionRegression(feat_channels=base_feat_channels,
+                                                fused_hidden=fused_hidden,
+                                                cell_bias_init=cell_bias_init,
+                                                se=False,
+                                                modality=True)
+
+    def forward(self, x_cell, x_wifi):
+        # x_cell: B x 3 x 16 x 3  (例)
+        # x_wifi: B x 1 x 16 x 20
+        feat_c = self.cell_cnn(x_cell)   # B x C x H x W
+        feat_w = self.wifi_cnn(x_wifi)   # B x C x H x W
+        out= self.fusion(feat_c, feat_w)
+        return out
 
 class CellBasicCnn(nn.Module):
     def __init__(self, in_channels: int = 1, out_dim: int = 2, dropout_rate: float = 0.3):
