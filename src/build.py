@@ -552,4 +552,4 @@ def split_coords_by_half_point(coords_list):
     return match_indices, match_coords, unmatch_coords
 
 if __name__ == '__main__':
-    run(19, '19test_03')
+    run(19, '19test_base2_fix')
