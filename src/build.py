@@ -339,7 +339,7 @@ def build_wifi_format_dataset(dataset, path, step=10, max_ap=10):
     return final_coord_data
 
 
-def build_tensor_dataset(cell_data, wifi_data, path=None, test_ratio=0.3, seed=42):
+def build_tensor_dataset(cell_data, wifi_data, path=None, test_ratio=0.4, seed=42):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -350,12 +350,12 @@ def build_tensor_dataset(cell_data, wifi_data, path=None, test_ratio=0.3, seed=4
     print(f"总坐标点数：{len(all_coords)}")
 
     # 对坐标进行随机划分（核心修改：先划分坐标，再按坐标收集样本）
-    # np.random.shuffle(all_coords)
-    # test_coord_size = int(len(all_coords) * test_ratio)
-    # train_coords = set(all_coords[test_coord_size:])  # 训练坐标集合
-    # test_coords = set(all_coords[:test_coord_size])  # 测试坐标集合
+    np.random.shuffle(all_coords)
+    test_coord_size = int(len(all_coords) * test_ratio)
+    train_coords = set(all_coords[test_coord_size:])  # 训练坐标集合
+    test_coords = set(all_coords[:test_coord_size])  # 测试坐标集合
 
-    match_indices, test_coords, train_coords = split_coords_by_half_point(all_coords)
+    # match_indices, test_coords, train_coords = split_coords_by_half_point(all_coords)
     print(f"训练坐标数：{len(train_coords)}, 测试坐标数：{len(test_coords)}")
 
     # ---------------------- 1. 处理Cell数据（按划分后的坐标收集样本） ----------------------
@@ -552,4 +552,4 @@ def split_coords_by_half_point(coords_list):
     return match_indices, match_coords, unmatch_coords
 
 if __name__ == '__main__':
-    run(19, '19test_base2_fix')
+    run(19, '19test_base2_random')
